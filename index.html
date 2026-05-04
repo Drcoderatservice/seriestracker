@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en-IN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SeriesTracker - Anime, Drama & Movie Watch Tracker</title>
+<meta name="description" content="SeriesTracker helps you track anime, donghua, C-drama, K-drama, movies, web series, seasons, episodes, favorites, and upcoming airing schedules in one clean watch tracker.">
+<meta name="keywords" content="anime tracker, series tracker, watch tracker, movie tracker, K-drama tracker, C-drama tracker, donghua tracker, episode tracker, airing schedule tracker">
+<meta name="author" content="SeriesTracker">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#090511">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SeriesTracker - Anime, Drama & Movie Watch Tracker">
+<meta property="og:description" content="Track anime, donghua, dramas, movies, web series, seasons, episodes, favorites, and airing schedules in one Firebase-powered watch tracker.">
+<meta property="og:image" content="dragon-bg.jpg">
+<meta property="og:site_name" content="SeriesTracker">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SeriesTracker - Anime, Drama & Movie Watch Tracker">
+<meta name="twitter:description" content="A clean watch tracker for anime, donghua, dramas, movies, web series, episodes, favorites, and airing schedules.">
+<meta name="twitter:image" content="dragon-bg.jpg">
+<link rel="preload" href="dragon-bg.jpg" as="image">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "SeriesTracker",
+  "applicationCategory": "EntertainmentApplication",
+  "operatingSystem": "Web",
+  "description": "SeriesTracker is a web watch tracker for anime, donghua, dramas, movies, web series, seasons, episodes, favorites, and airing schedules.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "INR"
+  },
+  "featureList": [
+    "Anime, drama, movie, and web series tracking",
+    "Season and episode progress",
+    "Upcoming airing schedules",
+    "Favorites and shareable watch lists",
+    "Firebase account sync"
+  ]
+}
+</script>
+</head>
+
+<body>
+  <div id="loginModal" class="login-modal hidden">
+    <div class="login-popup">
+      <button type="button" class="close-login" onclick="closeLogin()">&times;</button>
+
+      <div class="login-brand">
+        <span class="login-kicker">
+          <span class="wordmark wordmark--compact" aria-label="SeriesTracker">
+            <span class="wordmark-mark">S</span>eries<span class="wordmark-mark wordmark-mark--secondary">T</span>racker
+          </span>
+          <span>Access</span>
+        </span>
+        <h2>Enter The SeriesTracker Realm</h2>
+        <p class="inline-note">
+          Sign in with your email or username to keep your tracker synced and ready even after GitHub hosting.
+        </p>
+      </div>
+
+      <div class="login-form">
+        <label class="input-label" for="loginIdentifier">Email or Username</label>
+        <div class="input-shell">
+          <span class="input-icon">@</span>
+          <input type="text" id="loginIdentifier" placeholder="Enter your email or username">
+        </div>
+
+        <label class="input-label" for="loginPassword">Password</label>
+        <div class="input-shell">
+          <span class="input-icon">&#9679;</span>
+          <input type="password" id="loginPassword" placeholder="Enter your password">
+        </div>
+
+        <button type="button" class="login-helper-link" onclick="forgotPassword()">
+          Forgot password?
+        </button>
+
+        <button type="button" onclick="login()" class="login-btn">
+          Sign In
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      </div>
+
+      <div class="login-meta">
+        <span class="login-chip">Firebase cloud sync</span>
+        <span class="login-chip">Anime + dramas + movies</span>
+      </div>
+
+      <p class="login-footer">
+        Don't have an account?
+        <span onclick="openSignup()">Create one</span>
+      </p>
+    </div>
+  </div>
+
+  <div id="signupModal" class="login-modal hidden">
+    <div class="login-popup signup-popup">
+      <button type="button" class="close-login" onclick="closeSignup()">&times;</button>
+
+      <div class="login-brand">
+        <span class="login-kicker">
+          <span class="wordmark wordmark--compact" aria-label="SeriesTracker">
+            <span class="wordmark-mark">S</span>eries<span class="wordmark-mark wordmark-mark--secondary">T</span>racker
+          </span>
+          <span>Create</span>
+        </span>
+        <h2>Build Your SeriesTracker Account</h2>
+        <p class="inline-note">
+          Choose a username, link your email, and create an account that can sign in with either one.
+        </p>
+      </div>
+
+      <div class="login-form">
+        <label class="input-label" for="signupUsername">Username</label>
+        <div class="input-shell">
+          <span class="input-icon">#</span>
+          <input type="text" id="signupUsername" placeholder="Choose a username">
+        </div>
+
+        <label class="input-label" for="signupEmail">Email</label>
+        <div class="input-shell">
+          <span class="input-icon">@</span>
+          <input type="email" id="signupEmail" placeholder="Enter your email">
+        </div>
+
+        <label class="input-label" for="signupPassword">Password</label>
+        <div class="input-shell">
+          <span class="input-icon">&#9679;</span>
+          <input type="password" id="signupPassword" placeholder="Create your password">
+        </div>
+
+        <button type="button" onclick="signup()" class="login-btn">
+          Create Account
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      </div>
+
+      <div class="login-meta">
+        <span class="login-chip">Username login enabled</span>
+        <span class="login-chip">Secure Firebase auth</span>
+      </div>
+
+      <p class="login-footer">
+        Already have an account?
+        <span onclick="openLogin()">Sign in</span>
+      </p>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <header>
+    <div class="logo" aria-label="SeriesTracker">
+      <span class="wordmark">
+        <span class="wordmark-mark">S</span>eries<span class="wordmark-mark wordmark-mark--secondary">T</span>racker
+      </span>
+    </div>
+
+    <nav>
+      <button type="button" onclick="setCategory('Home')">Home</button>
+      <button type="button" onclick="setCategory('Anime')">Anime</button>
+      <button type="button" onclick="setCategory('Donghua')">Donghua</button>
+      <button type="button" onclick="setCategory('CDrama')">CDrama</button>
+      <button type="button" onclick="setCategory('KDrama')">KDrama</button>
+      <button type="button" onclick="setCategory('Movies')">Movies</button>
+      <button type="button" onclick="setCategory('WebSeries')">WebSeries</button>
+    </nav>
+
+    <div class="search-area">
+      <input
+        type="text"
+        id="searchInput"
+        placeholder="Search in library..."
+        oninput="localSearch()"
+      >
+
+      <button type="button" onclick="openAddSeries()" class="add-series-btn">
+        Add Series
+      </button>
+
+      <button type="button" onclick="openAiringModal()" class="airing-open-btn">
+        Airing
+      </button>
+
+      <div class="profile-menu">
+        <button
+          type="button"
+          class="profile-icon"
+          aria-label="Open profile menu"
+          onclick="toggleProfileMenu()"
+        >
+          <span id="profileFallback" class="profile-fallback" aria-hidden="true">&#128100;</span>
+          <img id="profileAvatar" class="profile-avatar hidden" alt="Profile picture">
+        </button>
+
+        <div id="profileDropdown" class="profile-dropdown hidden">
+          <button type="button" onclick="openSettingsModal()">Settings</button>
+          <button type="button" onclick="openLogin()">Login</button>
+          <button type="button" onclick="openSignup()">Signup</button>
+          <button type="button" onclick="logout()">Logout</button>
+          <button type="button" onclick="contactUs()">Contact</button>
+        </div>
+
+        <input
+          type="file"
+          id="profileUploadInput"
+          class="hidden"
+          accept="image/*"
+        >
+      </div>
+    </div>
+  </header>
+
+  <section id="landingSection" aria-labelledby="homeTitle">
+    <div id="landingHero">
+      <div class="empty-home">
+        <div class="overlay">
+          <p class="seo-kicker">Anime, drama and movie progress tracker</p>
+          <h1 id="homeTitle">Track every watch in one place</h1>
+          <p>Keep your anime, donghua, C-dramas, K-dramas, movies, and web series synced with episode progress, favorites, and airing schedules.</p>
+          <button type="button" class="hero-btn" onclick="openAddSeries()">Add Anime</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="currentlySection" class="currently hidden">
+    <h2>Currently Watching</h2>
+    <div id="currentlyWatching" class="row"></div>
+  </section>
+
+  <section id="librarySection" class="hidden">
+    <div class="library-toolbar">
+      <h2 id="pageTitle">Home</h2>
+
+      <div class="library-filters" aria-label="Library filters">
+        <label class="filter-control" for="categoryFilter">
+          <span>Category</span>
+          <select id="categoryFilter">
+            <option value="All">All Categories</option>
+            <option value="Anime">Anime</option>
+            <option value="Donghua">Donghua</option>
+            <option value="CDrama">CDrama</option>
+            <option value="KDrama">KDrama</option>
+            <option value="Movies">Movies</option>
+            <option value="WebSeries">WebSeries</option>
+          </select>
+        </label>
+
+        <label class="filter-control" for="statusFilter">
+          <span>Status</span>
+          <select id="statusFilter">
+            <option value="All">All Status</option>
+            <option value="Watching">Watching</option>
+            <option value="Planned">Planned</option>
+            <option value="Completed">Completed</option>
+            <option value="Paused">Paused</option>
+            <option value="Dropped">Dropped</option>
+          </select>
+        </label>
+
+        <label class="filter-control" for="sortFilter">
+          <span>Sort</span>
+          <select id="sortFilter">
+            <option value="Newest">Newest First</option>
+            <option value="Oldest">Oldest First</option>
+            <option value="AZ">A-Z</option>
+            <option value="ZA">Z-A</option>
+          </select>
+        </label>
+
+        <div class="filter-control filter-control-button">
+          <button
+            type="button"
+            id="favoritesFilterButton"
+            class="favorites-filter-btn"
+            aria-pressed="false"
+            aria-label="Show starred titles"
+            title="Show starred titles"
+            onclick="toggleFavoritesView()"
+          >
+            <svg
+              id="favoritesFilterIcon"
+              class="favorites-filter-icon"
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 2.6l2.86 5.8 6.4.93-4.63 4.51 1.1 6.37L12 17.2l-5.73 3.01 1.1-6.37L2.74 9.33l6.4-.93L12 2.6z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="filter-control filter-control-button">
+          <button
+            type="button"
+            id="sharePanelButton"
+            class="share-list-btn filter-share-btn"
+            aria-label="Share your list"
+            aria-pressed="false"
+            title="Share your list"
+            onclick="toggleSharePanel()"
+          >
+            <svg class="share-list-icon" aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M15.6 6.5a3.1 3.1 0 1 0-5.82-1.48 3.1 3.1 0 0 0 .18 1.03l-3.47 2.2a3.1 3.1 0 1 0 0 7.5l3.47 2.2a3.1 3.1 0 1 0 .9-1.44l-3.48-2.2c.12-.38.18-.78.18-1.19s-.06-.81-.18-1.19l3.48-2.2a3.1 3.1 0 0 0 4.74-3.23Z"></path>
+            </svg>
+            <span>Share</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="shareInlinePanel" class="share-inline-panel hidden" aria-label="Share list options">
+      <div class="share-inline-head">
+        <div>
+          <h3>Share Your List</h3>
+        </div>
+
+        <button
+          type="button"
+          class="share-inline-close"
+          aria-label="Close share options"
+          onclick="closeShareModal()"
+        >
+          X
+        </button>
+      </div>
+
+      <div class="share-toolbar">
+        <div class="share-selection-count" id="shareSelectionCount">0 titles selected</div>
+
+        <div class="share-toolbar-actions">
+          <button type="button" class="share-toolbar-btn" onclick="selectAllShareItems()">
+            Select All
+          </button>
+          <button type="button" class="share-toolbar-btn" onclick="clearShareSelection()">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div class="share-filter-grid">
+        <label class="share-field" for="shareCategoryFilter">
+          <span>Category</span>
+          <select id="shareCategoryFilter" onchange="filterShareSelection()">
+            <option value="All">All Categories</option>
+            <option value="Anime">Anime</option>
+            <option value="Donghua">Donghua</option>
+            <option value="CDrama">CDrama</option>
+            <option value="KDrama">KDrama</option>
+            <option value="Movies">Movies</option>
+            <option value="WebSeries">WebSeries</option>
+          </select>
+        </label>
+
+        <label class="share-field" for="shareStatusFilter">
+          <span>Status</span>
+          <select id="shareStatusFilter" onchange="filterShareSelection()">
+            <option value="All">All Status</option>
+            <option value="Watching">Watching</option>
+            <option value="Planned">Planned</option>
+            <option value="Completed">Completed</option>
+            <option value="Paused">Paused</option>
+            <option value="Dropped">Dropped</option>
+          </select>
+        </label>
+
+        <label class="share-field" for="shareSearchInput">
+          <span>Find a title</span>
+          <input
+            type="text"
+            id="shareSearchInput"
+            placeholder="Search titles to share..."
+            oninput="filterShareSelection()"
+          >
+        </label>
+      </div>
+
+      <div id="shareSelectionList" class="share-selection-list"></div>
+
+      <div class="share-inline-actions">
+        <button
+          type="button"
+          id="shareCopyLinkButton"
+          class="secondary-btn share-action-btn"
+          onclick="copyShareLink()"
+        >
+          Copy Link
+        </button>
+        <button
+          type="button"
+          id="shareSubmitButton"
+          class="primary-btn share-action-btn"
+          onclick="shareSelectedTitles()"
+        >
+          Share to Apps
+        </button>
+      </div>
+    </div>
+
+    <div id="mainGrid" class="grid"></div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <p>
+        <strong>SeriesTracker</strong> is a watch progress tracker for anime, donghua, dramas, movies, and web series.
+      </p>
+      <nav class="footer-links" aria-label="Footer links">
+        <a href="about.html">About</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="terms.html">Terms</a>
+        <a href="contact.html">Contact</a>
+      </nav>
+      <p class="data-credit">
+        This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB. Airing information may also use AniList data.
+      </p>
+    </div>
+  </footer>
+
+  <div id="searchModal" class="modal hidden">
+    <div class="modal-content">
+      <button type="button" class="top-close" onclick="closeModal()">X</button>
+
+      <h2>Add New Series</h2>
+
+      <input
+        type="text"
+        id="animeSearchInput"
+        placeholder="Search series here..."
+        oninput="searchAnime()"
+      >
+
+      <div id="searchResults"></div>
+    </div>
+  </div>
+
+  <div id="categoryModal" class="modal hidden">
+    <div class="modal-content small">
+      <h3>Select Category</h3>
+
+      <div class="field-group">
+        <label class="input-label">Category</label>
+        <div id="categoryChoiceButtons" class="choice-group" role="group" aria-label="Category">
+          <button type="button" class="choice-btn" data-category-value="Anime">Anime</button>
+          <button type="button" class="choice-btn" data-category-value="Donghua">Donghua</button>
+          <button type="button" class="choice-btn" data-category-value="CDrama">CDrama</button>
+          <button type="button" class="choice-btn" data-category-value="KDrama">KDrama</button>
+          <button type="button" class="choice-btn" data-category-value="Movies">Movies</button>
+          <button type="button" class="choice-btn" data-category-value="WebSeries">WebSeries</button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="input-label">Status</label>
+        <div id="statusChoiceButtons" class="choice-group" role="group" aria-label="Status">
+          <button type="button" class="choice-btn" data-status-value="Planned">Planned</button>
+          <button type="button" class="choice-btn" data-status-value="Watching">Watching</button>
+          <button type="button" class="choice-btn" data-status-value="Completed">Completed</button>
+          <button type="button" class="choice-btn" data-status-value="Paused">Paused</button>
+          <button type="button" class="choice-btn" data-status-value="Dropped">Dropped</button>
+        </div>
+      </div>
+
+      <button type="button" onclick="confirmCategory()">Next</button>
+      <button type="button" onclick="closeCategoryModal()">Close</button>
+    </div>
+  </div>
+
+  <div id="editModal" class="modal hidden">
+    <div class="modal-content edit-modal">
+      <button type="button" class="top-close" onclick="closeEditModal()">X</button>
+
+      <h2>Edit Title</h2>
+      <p class="modal-subtext">Update all tracker details in one place.</p>
+
+      <form id="editForm" class="edit-form">
+        <div class="field-group">
+          <label class="input-label" for="editTitleInput">Title</label>
+          <input type="text" id="editTitleInput" placeholder="Enter title">
+        </div>
+
+        <div class="form-grid">
+          <div class="field-group">
+            <label class="input-label" for="editTotalInput">Total Episodes</label>
+            <input type="number" id="editTotalInput" min="1" step="1" placeholder="12">
+          </div>
+
+          <div class="field-group">
+            <label class="input-label" for="editWatchedInput">Watched Episodes</label>
+            <input type="number" id="editWatchedInput" min="0" step="1" placeholder="3">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label">Status</label>
+          <div id="editStatusButtons" class="choice-group" role="group" aria-label="Edit status">
+            <button type="button" class="choice-btn" data-status-value="Planned">Planned</button>
+            <button type="button" class="choice-btn" data-status-value="Watching">Watching</button>
+            <button type="button" class="choice-btn" data-status-value="Completed">Completed</button>
+            <button type="button" class="choice-btn" data-status-value="Paused">Paused</button>
+            <button type="button" class="choice-btn" data-status-value="Dropped">Dropped</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="primary-btn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="deleteModal" class="modal hidden">
+    <div class="modal-content confirm-modal">
+      <button type="button" class="top-close" onclick="closeDeleteModal()">X</button>
+
+      <h2>Delete Title</h2>
+      <p id="deleteModalMessage" class="modal-subtext">
+        Are you sure you want to remove this title from your tracker?
+      </p>
+
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" onclick="closeDeleteModal()">Cancel</button>
+        <button type="button" class="danger-btn" onclick="confirmDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content settings-modal">
+      <button type="button" class="top-close" onclick="closeSettingsModal()">X</button>
+
+      <h2>Settings</h2>
+      <p class="modal-subtext">Manage your profile and appearance here.</p>
+
+      <div class="settings-modal-actions">
+        <button type="button" class="settings-action-btn" onclick="triggerProfileUpload()">Add Profile Pic</button>
+        <button
+          type="button"
+          id="usernameToggleButton"
+          class="settings-action-btn"
+          aria-expanded="false"
+          aria-controls="settingsUsernamePanel"
+          onclick="toggleUsernamePanel()"
+        >
+          Set Username
+        </button>
+        <button
+          type="button"
+          id="defaultViewToggleButton"
+          class="settings-action-btn"
+          aria-expanded="false"
+          aria-controls="settingsDefaultViewPanel"
+          onclick="toggleDefaultViewPanel()"
+        >
+          Default View
+        </button>
+        <button
+          type="button"
+          id="themeToggleButton"
+          class="settings-action-btn"
+          aria-expanded="false"
+          aria-controls="settingsThemePanel"
+          onclick="toggleThemePanel()"
+        >
+          Theme
+        </button>
+      </div>
+
+      <div id="settingsUsernamePanel" class="settings-section settings-username-panel hidden">
+        <div class="settings-section-head">
+          <h3>Change Username</h3>
+          <p>Set a username now so you can sign in with it later instead of only using email.</p>
+        </div>
+
+        <div class="settings-username-status">
+          <span class="settings-username-label">Current username</span>
+          <strong id="settingsUsernameCurrentValue">Not set yet</strong>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label" for="settingsUsernameInput">New Username</label>
+          <div class="input-shell">
+            <span class="input-icon">#</span>
+            <input
+              type="text"
+              id="settingsUsernameInput"
+              placeholder="Choose a username"
+              autocomplete="off"
+            >
+          </div>
+        </div>
+
+        <div class="modal-actions settings-username-actions">
+          <button type="button" class="secondary-btn" onclick="toggleUsernamePanel()">Close</button>
+          <button type="button" class="primary-btn" onclick="saveUsernameChange()">Save Username</button>
+        </div>
+      </div>
+
+      <div id="settingsDefaultViewPanel" class="settings-section settings-default-view-panel hidden">
+        <div class="settings-section-head">
+          <h3>Default View</h3>
+          <p>Pick the category and sort order that should open automatically after login.</p>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label">Category</label>
+          <div id="defaultCategoryButtons" class="choice-group" role="group" aria-label="Default category">
+            <button type="button" class="choice-btn active" data-default-category="Home" onclick="setDefaultCategoryPreference('Home')">Home</button>
+            <button type="button" class="choice-btn" data-default-category="Anime" onclick="setDefaultCategoryPreference('Anime')">Anime</button>
+            <button type="button" class="choice-btn" data-default-category="Donghua" onclick="setDefaultCategoryPreference('Donghua')">Donghua</button>
+            <button type="button" class="choice-btn" data-default-category="CDrama" onclick="setDefaultCategoryPreference('CDrama')">CDrama</button>
+            <button type="button" class="choice-btn" data-default-category="KDrama" onclick="setDefaultCategoryPreference('KDrama')">KDrama</button>
+            <button type="button" class="choice-btn" data-default-category="Movies" onclick="setDefaultCategoryPreference('Movies')">Movies</button>
+            <button type="button" class="choice-btn" data-default-category="WebSeries" onclick="setDefaultCategoryPreference('WebSeries')">WebSeries</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label">Sort</label>
+          <div id="defaultSortButtons" class="choice-group" role="group" aria-label="Default sort">
+            <button type="button" class="choice-btn active" data-sort-value="Newest" onclick="setDefaultSortPreference('Newest')">Newest</button>
+            <button type="button" class="choice-btn" data-sort-value="Oldest" onclick="setDefaultSortPreference('Oldest')">Oldest</button>
+            <button type="button" class="choice-btn" data-sort-value="AZ" onclick="setDefaultSortPreference('AZ')">A-Z</button>
+            <button type="button" class="choice-btn" data-sort-value="ZA" onclick="setDefaultSortPreference('ZA')">Z-A</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="settingsThemePanel" class="settings-section settings-theme-panel hidden">
+        <div class="settings-section-head">
+          <h3>Theme</h3>
+          <p>Choose the look you want and switch it anytime.</p>
+        </div>
+
+        <div class="settings-theme-grid" role="group" aria-label="Theme options">
+          <button
+            type="button"
+            class="theme-option"
+            data-theme-option="default"
+            onclick="setTheme('default')"
+          >
+            <span class="theme-preview theme-preview-default" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="theme-option-copy">
+              <strong>Default Dragon</strong>
+              <small>Original dark glow</small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            class="theme-option"
+            data-theme-option="netflix-red"
+            onclick="setTheme('netflix-red')"
+          >
+            <span class="theme-preview theme-preview-netflix" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="theme-option-copy">
+              <strong>Netflix Red</strong>
+              <small>Dark cinematic red</small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            class="theme-option"
+            data-theme-option="ocean-night"
+            onclick="setTheme('ocean-night')"
+          >
+            <span class="theme-preview theme-preview-ocean" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="theme-option-copy">
+              <strong>Ocean Night</strong>
+              <small>Cool teal neon</small>
+            </span>
+          </button>
+        </div>
+
+        <button type="button" class="settings-reset-btn" onclick="resetThemeToDefault()">
+          Reset to Default
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="seasonsModal" class="modal hidden">
+    <div class="modal-content seasons-modal">
+      <button type="button" class="top-close" onclick="closeSeasonsModal()">X</button>
+
+      <div class="seasons-head">
+        <div class="seasons-head-top">
+          <div>
+            <h2 id="seasonsModalTitle">Series Seasons</h2>
+            <p id="seasonsModalSummary" class="modal-subtext">
+              Separate season details will appear here.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            id="seasonsEditButton"
+            class="seasons-edit-btn"
+            onclick="openEditFromSeasons()"
+          >
+            Edit Title
+          </button>
+        </div>
+      </div>
+
+      <div id="seasonsGrid" class="seasons-grid"></div>
+    </div>
+  </div>
+
+  <div id="airingModal" class="modal hidden">
+    <div class="modal-content airing-modal">
+      <button type="button" class="top-close" onclick="closeAiringModal()">X</button>
+
+      <div class="airing-head">
+        <div>
+          <h2>Airing Radar</h2>
+          <p id="airingSummary" class="modal-subtext">Upcoming episodes and seasons will appear here.</p>
+        </div>
+
+        <button
+          type="button"
+          id="airingRefreshButton"
+          class="airing-refresh-btn"
+          onclick="refreshAiringSchedule()"
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div id="airingTabs" class="airing-tabs" role="tablist" aria-label="Airing schedule tabs">
+        <button
+          type="button"
+          class="airing-tab active"
+          data-airing-tab="episodes"
+          role="tab"
+          aria-selected="true"
+        >
+          Next Episodes
+        </button>
+        <button
+          type="button"
+          class="airing-tab"
+          data-airing-tab="seasons"
+          role="tab"
+          aria-selected="false"
+        >
+          Next Seasons
+        </button>
+      </div>
+
+      <div id="airingCategoryFilters" class="airing-filter-row" role="group" aria-label="Airing category filter">
+        <span>Show</span>
+        <button
+          type="button"
+          class="airing-filter-btn active"
+          data-airing-category="All"
+          aria-pressed="true"
+        >
+          All
+        </button>
+        <button
+          type="button"
+          class="airing-filter-btn"
+          data-airing-category="Anime"
+          aria-pressed="false"
+        >
+          Anime
+        </button>
+        <button
+          type="button"
+          class="airing-filter-btn"
+          data-airing-category="Donghua"
+          aria-pressed="false"
+        >
+          Donghua
+        </button>
+        <button
+          type="button"
+          class="airing-filter-btn"
+          data-airing-category="CDrama"
+          aria-pressed="false"
+        >
+          CDrama
+        </button>
+        <button
+          type="button"
+          class="airing-filter-btn"
+          data-airing-category="KDrama"
+          aria-pressed="false"
+        >
+          KDrama
+        </button>
+        <button
+          type="button"
+          class="airing-filter-btn"
+          data-airing-category="WebSeries"
+          aria-pressed="false"
+        >
+          WebSeries
+        </button>
+
+        <label class="airing-sort-control" for="airingSortFilter">
+          <span>Sort</span>
+          <select id="airingSortFilter">
+            <option value="Newest">Newest First</option>
+            <option value="Oldest" selected>Oldest First</option>
+            <option value="AZ">A-Z</option>
+            <option value="ZA">Z-A</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="airingStatus" class="airing-status"></div>
+      <div id="airingEpisodesPanel" class="airing-panel"></div>
+      <div id="airingSeasonsPanel" class="airing-panel hidden"></div>
+    </div>
+  </div>
+
+  <div id="seasonEditModal" class="modal hidden">
+    <div class="modal-content edit-modal season-edit-modal">
+      <button type="button" class="top-close" onclick="closeSeasonEditModal()">X</button>
+
+      <h2>Edit Season</h2>
+      <p class="modal-subtext">Update season-specific details here.</p>
+
+      <form id="seasonEditForm" class="edit-form">
+        <div class="field-group">
+          <label class="input-label" for="seasonEditNameInput">Season Name</label>
+          <input type="text" id="seasonEditNameInput" placeholder="Season 1">
+        </div>
+
+        <div class="form-grid">
+          <div class="field-group">
+            <label class="input-label" for="seasonEditEpisodesInput">Episodes</label>
+            <input type="number" id="seasonEditEpisodesInput" min="1" step="1" placeholder="12">
+          </div>
+
+          <div class="field-group">
+            <label class="input-label" for="seasonEditYearInput">Release Year</label>
+            <input type="number" id="seasonEditYearInput" min="1900" max="9999" step="1" placeholder="2024">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label">Status</label>
+          <div id="seasonEditStatusButtons" class="choice-group" role="group" aria-label="Season edit status">
+            <button type="button" class="choice-btn" data-status-value="Planned">Planned</button>
+            <button type="button" class="choice-btn" data-status-value="Watching">Watching</button>
+            <button type="button" class="choice-btn" data-status-value="Completed">Completed</button>
+            <button type="button" class="choice-btn" data-status-value="Paused">Paused</button>
+            <button type="button" class="choice-btn" data-status-value="Dropped">Dropped</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="input-label" for="seasonEditOverviewInput">Overview</label>
+          <textarea id="seasonEditOverviewInput" rows="4" placeholder="Write a short season description"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" onclick="closeSeasonEditModal()">Cancel</button>
+          <button type="submit" class="primary-btn">Save Season</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-app.js";
+    import {
+      getAuth,
+      onAuthStateChanged,
+      createUserWithEmailAndPassword,
+      signInWithEmailAndPassword,
+      sendPasswordResetEmail,
+      signOut
+    } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      doc,
+      setDoc,
+      getDoc,
+      getDocs,
+      query,
+      where,
+      limit,
+      deleteDoc
+    } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAm-13tnybtpD3KEwTSnx4JKGYpE0NV_xM",
+      authDomain: "trackerflix-9f3cb.firebaseapp.com",
+      projectId: "trackerflix-9f3cb",
+      storageBucket: "trackerflix-9f3cb.firebasestorage.app",
+      messagingSenderId: "191328175525",
+      appId: "1:191328175525:web:47f05118cb92e032a9544c"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    window.auth = auth;
+    window.db = db;
+    window.collection = collection;
+    window.doc = doc;
+    window.setDoc = setDoc;
+    window.getDoc = getDoc;
+    window.getDocs = getDocs;
+    window.query = query;
+    window.where = where;
+    window.limit = limit;
+    window.deleteDoc = deleteDoc;
+    window.onAuthStateChanged = onAuthStateChanged;
+    window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
+    window.signInWithEmailAndPassword = signInWithEmailAndPassword;
+    window.sendPasswordResetEmail = sendPasswordResetEmail;
+    window.signOut = signOut;
+    window.firebaseApp = app;
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
