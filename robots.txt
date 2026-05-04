@@ -1,5 +1,4 @@
 User-agent: *
 Allow: /
 
-# Add your live sitemap URL after deployment, for example:
-# Sitemap: https://example.com/sitemap.xml
+Sitemap: https://drcoderatservice.github.io/seriestracker/sitemap.xml

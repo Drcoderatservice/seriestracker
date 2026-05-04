@@ -16,10 +16,10 @@
    - Folder: `/root`
 4. Save and wait for GitHub to publish.
 
-Your temporary URL will look like:
+Your temporary URL is:
 
 ```text
-https://YOUR-USERNAME.github.io/trackerflix-main/
+https://drcoderatservice.github.io/seriestracker/
 ```
 
 ## After Publish
@@ -27,5 +27,4 @@ https://YOUR-USERNAME.github.io/trackerflix-main/
 1. Add the GitHub Pages domain in Firebase Auth:
    `Firebase Console` -> `Authentication` -> `Settings` -> `Authorized domains`.
 2. Replace `yourmail@gmail.com` in `contact.html` with your real contact email.
-3. Update `robots.txt` with the live sitemap URL after you have the final GitHub Pages URL.
-4. If you later buy a custom domain, add that domain in GitHub Pages and Firebase.
+3. If you later buy a custom domain, add that domain in GitHub Pages and Firebase.
