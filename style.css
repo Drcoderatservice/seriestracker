@@ -150,6 +150,12 @@ nav button:focus-visible {
   gap: 10px;
 }
 
+body:not(.is-authenticated) #searchInput,
+body:not(.is-authenticated) .add-series-btn,
+body:not(.is-authenticated) .airing-open-btn {
+  display: none;
+}
+
 .search-area input,
 .modal-content input,
 .modal-content select,

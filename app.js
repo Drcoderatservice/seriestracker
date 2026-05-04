@@ -4002,7 +4002,7 @@ function renderEmptyHome() {
         <p class="seo-kicker">Anime, drama and movie progress tracker</p>
         <h1 id="homeTitle">Track every watch in one place</h1>
         <p>Keep your anime, donghua, C-dramas, K-dramas, movies, and web series synced with episode progress, favorites, and airing schedules.</p>
-        <button type="button" class="hero-btn" onclick="openAddSeries()">Add Anime</button>
+        <button type="button" class="hero-btn" onclick="openSignup()">Create Free Account</button>
       </div>
     </div>
   `;
@@ -4019,6 +4019,8 @@ function renderEmptyPanel(title, message) {
 
 function updateAuthVisibility() {
   const isLoggedIn = Boolean(currentUser);
+  document.body.classList.toggle("is-authenticated", isLoggedIn);
+  document.body.classList.toggle("is-guest", !isLoggedIn);
   document.getElementById("landingSection").classList.toggle("hidden", isLoggedIn);
   document.getElementById("currentlySection").classList.toggle("hidden", !isLoggedIn);
   document.getElementById("librarySection").classList.toggle("hidden", !isLoggedIn);
