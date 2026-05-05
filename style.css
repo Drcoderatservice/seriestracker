@@ -21,6 +21,10 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -28,6 +32,7 @@ body {
   color: var(--text);
   background: var(--bg);
   position: relative;
+  overflow-x: hidden;
 }
 
 body::before {
@@ -50,6 +55,13 @@ button,
 input,
 select {
   font: inherit;
+}
+
+button,
+input,
+select,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 header {
@@ -3074,6 +3086,219 @@ body[data-theme="ocean-night"] .login-helper-link {
   }
 }
 
+@media (max-width: 1024px) {
+  header {
+    gap: 12px;
+    padding: 14px 18px;
+  }
+
+  .logo {
+    font-size: 26px;
+  }
+
+  header nav {
+    order: 3;
+    width: 100%;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  header nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  header nav button {
+    flex: 0 0 auto;
+    min-height: 42px;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  .search-area {
+    flex: 1 1 auto;
+    min-width: 260px;
+  }
+
+  .row,
+  .grid {
+    width: 100%;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    justify-content: stretch;
+  }
+
+  .site-footer-inner,
+  .seo-page {
+    width: min(100% - 32px, 920px);
+  }
+}
+
+@media (max-width: 760px) {
+  header {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .logo {
+    font-size: 23px;
+  }
+
+  .search-area {
+    width: 100%;
+    min-width: 0;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .search-area input {
+    flex: 1 1 100%;
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .search-area button,
+  .hero-btn,
+  .login-btn {
+    min-height: 44px;
+  }
+
+  .profile-menu {
+    margin-left: auto;
+  }
+
+  .profile-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  header nav {
+    margin: 0 -12px;
+    padding: 0 12px 4px;
+  }
+
+  section {
+    padding-top: 22px;
+    padding-bottom: 22px;
+  }
+
+  .library-toolbar {
+    gap: 14px;
+  }
+
+  .empty-home {
+    min-height: 560px;
+    border-radius: 22px;
+    align-items: flex-end;
+  }
+
+  .overlay {
+    width: 100%;
+    margin: 12px;
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
+
+  .overlay h1,
+  .overlay h2 {
+    font-size: 34px;
+  }
+
+  .overlay p {
+    font-size: 15px;
+  }
+
+  .row,
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .currently .row {
+    grid-auto-columns: minmax(142px, 44vw);
+    gap: 12px;
+  }
+
+  .card,
+  .empty-panel {
+    border-radius: 18px;
+    padding: 10px;
+  }
+
+  .card::before {
+    display: none;
+  }
+
+  .card:hover,
+  .card:focus-within {
+    transform: none;
+  }
+
+  .card img,
+  .card-poster {
+    height: 190px;
+    border-radius: 14px;
+  }
+
+  .favorite-toggle {
+    opacity: 1;
+    transform: none;
+    width: 34px;
+    height: 34px;
+  }
+
+  .card h3 {
+    font-size: 13px;
+  }
+
+  .actions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .actions button {
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  .modal,
+  .login-modal {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .modal-content,
+  .login-popup {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    overflow: auto;
+    border-radius: 22px;
+  }
+
+  #searchModal .modal-content {
+    width: 100%;
+    height: calc(100dvh - 20px);
+  }
+
+  .site-footer {
+    padding: 24px 14px 30px;
+  }
+
+  .site-footer-inner,
+  .seo-page {
+    width: calc(100% - 24px);
+  }
+
+  .seo-page {
+    margin: 26px auto;
+    padding: 24px 20px;
+    border-radius: 22px;
+  }
+}
+
 @media (max-width: 600px) {
   .form-grid,
   .modal-actions {
@@ -3225,6 +3450,113 @@ body[data-theme="ocean-night"] .login-helper-link {
 
   .login-brand h2 {
     font-size: 30px;
+  }
+}
+
+@media (max-width: 430px) {
+  header {
+    padding: 10px;
+  }
+
+  .logo {
+    font-size: 21px;
+  }
+
+  header nav {
+    margin: 0 -10px;
+    padding: 0 10px 4px;
+  }
+
+  header nav button {
+    min-height: 40px;
+    padding: 9px 11px;
+    font-size: 12px;
+  }
+
+  .search-area button {
+    flex: 1 1 0;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .empty-home {
+    min-height: 520px;
+    border-radius: 18px;
+  }
+
+  .overlay {
+    margin: 10px;
+    padding: 22px 16px;
+    border-radius: 18px;
+  }
+
+  .seo-kicker {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  .overlay h1,
+  .overlay h2 {
+    font-size: 30px;
+  }
+
+  .overlay p {
+    font-size: 14px;
+  }
+
+  .row,
+  .grid {
+    gap: 10px;
+  }
+
+  .card img,
+  .card-poster {
+    height: 162px;
+  }
+
+  .currently .row {
+    grid-auto-columns: minmax(132px, 45vw);
+  }
+
+  .currently .row .card img,
+  .currently .row .card-poster {
+    height: 150px;
+  }
+
+  .card-meta {
+    align-items: flex-start;
+  }
+
+  .tag {
+    font-size: 11px;
+  }
+
+  .details-pill {
+    font-size: 9px;
+  }
+
+  .modal-content,
+  .login-popup {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .site-footer p,
+  .seo-page p,
+  .seo-page li {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 350px) {
+  .row,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card img,
+  .card-poster {
+    height: 245px;
   }
 }
 
