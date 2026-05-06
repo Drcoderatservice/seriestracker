@@ -908,7 +908,10 @@ section h2 {
     rgba(4, 6, 10, 0.82);
   display: flex;
   align-items: center;
+  align-items: safe center;
   justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   z-index: 10000;
 }
@@ -1018,7 +1021,11 @@ section h2 {
   border-radius: 26px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   position: relative;
+  scrollbar-gutter: stable;
 }
 
 .modal-content {
@@ -2432,8 +2439,18 @@ section h2 {
 }
 
 .settings-modal {
-  width: min(460px, 100%);
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 64px);
   text-align: left;
+}
+
+.settings-modal > .top-close {
+  position: sticky;
+  top: 0;
+  right: 0;
+  float: right;
+  margin: -8px -8px 10px 14px;
+  backdrop-filter: blur(12px);
 }
 
 .settings-modal-actions {

@@ -2612,6 +2612,19 @@ function setUsernamePanelVisibility(isOpen) {
   }
 }
 
+function scrollSettingsPanelIntoView(panel) {
+  if (!panel) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    panel.scrollIntoView({
+      block: "nearest",
+      inline: "nearest"
+    });
+  });
+}
+
 function toggleUsernamePanel() {
   const panel = document.getElementById("settingsUsernamePanel");
   const shouldOpen = panel?.classList.contains("hidden");
@@ -2622,6 +2635,7 @@ function toggleUsernamePanel() {
     setDefaultViewPanelVisibility(false);
     setThemePanelVisibility(false);
     updateUsernameSettingsUI();
+    scrollSettingsPanelIntoView(panel);
   }
 }
 
@@ -2648,6 +2662,7 @@ function toggleDefaultViewPanel() {
     setUsernamePanelVisibility(false);
     setThemePanelVisibility(false);
     updateDefaultViewSelectionUI();
+    scrollSettingsPanelIntoView(panel);
   }
 }
 
@@ -2674,6 +2689,7 @@ function toggleThemePanel() {
     setUsernamePanelVisibility(false);
     setDefaultViewPanelVisibility(false);
     updateThemeSelectionUI();
+    scrollSettingsPanelIntoView(panel);
   }
 }
 
