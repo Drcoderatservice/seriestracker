@@ -69,6 +69,7 @@ let activeAiringSortFilter = "Oldest";
 let profileAvatarData = "";
 let saveQueue = Promise.resolve();
 let authListenerStarted = false;
+let authStateKnown = false;
 let authLoadToken = 0;
 let seasonLoadToken = 0;
 let airingLoadToken = 0;
@@ -4017,10 +4018,21 @@ function renderEmptyPanel(title, message) {
   `;
 }
 
+function renderStartupPanel() {
+  return `
+    <div class="empty-panel">
+      <h3 id="homeTitle">Loading your tracker</h3>
+      <p>Getting your saved watch list ready.</p>
+    </div>
+  `;
+}
+
 function updateAuthVisibility() {
   const isLoggedIn = Boolean(currentUser);
   document.body.classList.toggle("is-authenticated", isLoggedIn);
   document.body.classList.toggle("is-guest", !isLoggedIn);
+  document.body.classList.toggle("is-auth-loading", !authStateKnown && !isLoggedIn);
+  document.body.classList.toggle("is-auth-ready", authStateKnown);
   document.getElementById("landingSection").classList.toggle("hidden", isLoggedIn);
   document.getElementById("currentlySection").classList.toggle("hidden", !isLoggedIn);
   document.getElementById("librarySection").classList.toggle("hidden", !isLoggedIn);
@@ -4042,7 +4054,9 @@ function render() {
     resetShareModalState();
     document.getElementById("landingHero").innerHTML = sharedListFromLink
       ? renderSharedListView(sharedListFromLink)
-      : renderEmptyHome();
+      : authStateKnown
+        ? renderEmptyHome()
+        : renderStartupPanel();
     document.getElementById("currentlyWatching").innerHTML = "";
     document.getElementById("mainGrid").innerHTML = "";
     syncOpenSharePanel();
@@ -4481,6 +4495,10 @@ function closeCardCopyMenus(exceptMenu = null) {
   }
 }
 
+function hasOpenCardCopyMenu() {
+  return Boolean(activeCardCopyTitle);
+}
+
 function showCopyControlForCard(card) {
   if (!card) {
     return;
@@ -4843,14 +4861,18 @@ function bindEventListeners() {
   });
 
   window.addEventListener("resize", () => {
-    closeCardCopyMenus();
+    if (hasOpenCardCopyMenu()) {
+      closeCardCopyMenus();
+    }
   });
   window.addEventListener(
     "scroll",
     () => {
-      closeCardCopyMenus();
+      if (hasOpenCardCopyMenu()) {
+        closeCardCopyMenus();
+      }
     },
-    true
+    { capture: true, passive: true }
   );
 
   window.addEventListener("hashchange", () => {
@@ -4972,6 +4994,8 @@ async function startAuthListener() {
   const ready = await waitForFirebase();
 
   if (!ready) {
+    authStateKnown = true;
+    render();
     showError("Firebase could not connect. Please check the configuration.");
     return;
   }
@@ -4980,6 +5004,7 @@ async function startAuthListener() {
 
   onAuthStateChanged(auth, async (user) => {
     const loadToken = ++authLoadToken;
+    authStateKnown = true;
 
     if (!user) {
       currentUser = null;
@@ -4994,7 +5019,7 @@ async function startAuthListener() {
 
     currentUser = user;
     currentUsername = "";
-    tracker = [];
+    tracker = readLegacyTracker(user.email || "");
     loadDefaultViewPreferences();
     applyDefaultViewPreferences({ resetTransientFilters: true });
     loadProfileAvatar();
