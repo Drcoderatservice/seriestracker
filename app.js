@@ -36,6 +36,8 @@ const DEFAULT_VIEW_CATEGORY_OPTIONS = new Set(["Home", ...CATEGORY_OPTIONS]);
 const THEME_OPTIONS = new Set(["default", "netflix-red", "ocean-night"]);
 const DEFAULT_THEME = "default";
 const THEME_STORAGE_KEY = "seriestracker_theme";
+const THEME_STORAGE_VERSION_KEY = "seriestracker_theme_version";
+const THEME_STORAGE_VERSION = "purple-default-2026-05-06";
 const DEFAULT_CATEGORY_STORAGE_KEY = "seriestracker_default_category";
 const DEFAULT_SORT_STORAGE_KEY = "seriestracker_default_sort";
 const SHARE_HASH_KEY = "share";
@@ -4359,11 +4361,26 @@ function applyTheme(theme, options = {}) {
   } else {
     localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
   }
+
+  localStorage.setItem(THEME_STORAGE_VERSION_KEY, THEME_STORAGE_VERSION);
 }
 
 function loadSavedTheme() {
-  const savedTheme = normalizeThemeValue(localStorage.getItem(THEME_STORAGE_KEY));
-  applyTheme(savedTheme, { persist: false });
+  try {
+    const savedThemeVersion = localStorage.getItem(THEME_STORAGE_VERSION_KEY);
+
+    if (savedThemeVersion !== THEME_STORAGE_VERSION) {
+      localStorage.removeItem(THEME_STORAGE_KEY);
+      localStorage.setItem(THEME_STORAGE_VERSION_KEY, THEME_STORAGE_VERSION);
+      applyTheme(DEFAULT_THEME, { persist: false });
+      return;
+    }
+
+    const savedTheme = normalizeThemeValue(localStorage.getItem(THEME_STORAGE_KEY));
+    applyTheme(savedTheme, { persist: false });
+  } catch (error) {
+    applyTheme(DEFAULT_THEME, { persist: false });
+  }
 }
 
 function setTheme(theme) {
