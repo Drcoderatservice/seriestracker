@@ -4481,6 +4481,25 @@ function closeCardCopyMenus(exceptMenu = null) {
   }
 }
 
+function showCopyControlForCard(card) {
+  if (!card) {
+    return;
+  }
+
+  document.querySelectorAll(".card.is-copy-visible").forEach((visibleCard) => {
+    if (visibleCard !== card) {
+      visibleCard.classList.remove("is-copy-visible");
+    }
+  });
+  card.classList.add("is-copy-visible");
+}
+
+function hideVisibleCardCopyControls() {
+  document.querySelectorAll(".card.is-copy-visible").forEach((card) => {
+    card.classList.remove("is-copy-visible");
+  });
+}
+
 function positionCardCopyMenu(button, popup) {
   if (!button || !popup) {
     return;
@@ -4649,7 +4668,10 @@ function handleFloatingCopyMenuAction(event) {
 
 function handleCardAction(event) {
   const target = event.target instanceof Element ? event.target : null;
+  const card = target?.closest?.(".card");
   const button = target?.closest?.("button[data-action]");
+
+  showCopyControlForCard(card);
 
   if (!button) {
     return;
@@ -4779,6 +4801,11 @@ function bindEventListeners() {
     const clickedInsideCopyMenu = Boolean(
       event.target.closest(".card-copy, .floating-copy-menu")
     );
+    const clickedCard = event.target.closest(".card");
+
+    if (!clickedCard && !clickedInsideCopyMenu) {
+      hideVisibleCardCopyControls();
+    }
 
     if (!clickedInsideCopyMenu) {
       closeCardCopyMenus();
