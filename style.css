@@ -34,13 +34,18 @@ body {
   min-height: 100vh;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: var(--text);
-  background: var(--page-glow), var(--bg);
+  background: var(--bg);
   position: relative;
   overflow-x: hidden;
 }
 
 body::before {
-  display: none;
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--page-glow);
+  pointer-events: none;
+  z-index: 0;
 }
 
 body > * {
@@ -2917,11 +2922,11 @@ body[data-theme="ocean-night"] {
 }
 
 body[data-theme="netflix-red"]::before {
-  display: none;
+  background: var(--page-glow);
 }
 
 body[data-theme="ocean-night"]::before {
-  display: none;
+  background: var(--page-glow);
 }
 
 body[data-theme="netflix-red"] nav button,
