@@ -20,10 +20,11 @@
 <meta name="twitter:title" content="SeriesTracker - Anime, Drama & Movie Watch Tracker">
 <meta name="twitter:description" content="A clean watch tracker for anime, donghua, dramas, movies, web series, episodes, favorites, and airing schedules.">
 <meta name="twitter:image" content="dragon-bg.jpg">
+<meta name="app-version" content="20260510-airing-notifications">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com">
-<link rel="stylesheet" href="style.css?v=20260506-modal-fix">
+<link rel="stylesheet" href="style.css?v=20260510-airing-notifications">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -738,7 +739,18 @@
         >
           Refresh
         </button>
+        <button
+          type="button"
+          id="airingNotificationButton"
+          class="airing-notify-btn"
+          aria-pressed="false"
+          onclick="toggleAiringNotifications()"
+        >
+          Notify Me
+        </button>
       </div>
+
+      <div id="airingNotificationStatus" class="airing-notification-status"></div>
 
       <div id="airingTabs" class="airing-tabs" role="tablist" aria-label="Airing schedule tabs">
         <button
@@ -932,6 +944,6 @@
     window.signOut = signOut;
     window.firebaseApp = app;
   </script>
-  <script src="app.js?v=20260506-modal-fix"></script>
+  <script src="app.js?v=20260510-airing-notifications"></script>
 </body>
 </html>

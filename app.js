@@ -40,6 +40,11 @@ const THEME_STORAGE_VERSION_KEY = "seriestracker_theme_version";
 const THEME_STORAGE_VERSION = "purple-default-2026-05-06";
 const DEFAULT_CATEGORY_STORAGE_KEY = "seriestracker_default_category";
 const DEFAULT_SORT_STORAGE_KEY = "seriestracker_default_sort";
+const AIRING_NOTIFICATION_ENABLED_KEY = "seriestracker_airing_notifications_enabled";
+const AIRING_NOTIFICATION_SEEN_KEY = "seriestracker_airing_notifications_seen";
+const AIRING_NOTIFICATION_LEAD_MINUTES = 30;
+const AIRING_NOTIFICATION_CHECK_MS = 60 * 1000;
+const AIRING_NOTIFICATION_REFRESH_MS = 2 * 60 * 60 * 1000;
 const SHARE_HASH_KEY = "share";
 const SHARE_COLLECTION = "sharedLists";
 
@@ -76,6 +81,8 @@ let authLoadToken = 0;
 let seasonLoadToken = 0;
 let airingLoadToken = 0;
 let airingCountdownTimer = null;
+let airingNotificationTimer = null;
+let airingNotificationsEnabled = false;
 let sharedListFromLink = null;
 let activeCardCopyTitle = "";
 let airingScheduleState = {
@@ -2119,6 +2126,256 @@ function isAiringModalOpen() {
   return !document.getElementById("airingModal")?.classList.contains("hidden");
 }
 
+function isBrowserNotificationSupported() {
+  return "Notification" in window;
+}
+
+function readAiringNotificationPreference() {
+  try {
+    return localStorage.getItem(AIRING_NOTIFICATION_ENABLED_KEY) === "true";
+  } catch (error) {
+    return false;
+  }
+}
+
+function saveAiringNotificationPreference(isEnabled) {
+  airingNotificationsEnabled = Boolean(isEnabled);
+
+  try {
+    localStorage.setItem(
+      AIRING_NOTIFICATION_ENABLED_KEY,
+      airingNotificationsEnabled ? "true" : "false"
+    );
+  } catch (error) {
+    // The in-memory preference still works for this session.
+  }
+}
+
+function readSeenAiringNotifications() {
+  try {
+    const data = JSON.parse(localStorage.getItem(AIRING_NOTIFICATION_SEEN_KEY) || "{}");
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveSeenAiringNotifications(seenMap) {
+  try {
+    localStorage.setItem(AIRING_NOTIFICATION_SEEN_KEY, JSON.stringify(seenMap));
+  } catch (error) {
+    // If storage is full, duplicate prevention can reset without breaking alerts.
+  }
+}
+
+function pruneSeenAiringNotifications(seenMap) {
+  const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+
+  Object.keys(seenMap).forEach((key) => {
+    if (!Number.isFinite(seenMap[key]) || seenMap[key] < cutoff) {
+      delete seenMap[key];
+    }
+  });
+
+  return seenMap;
+}
+
+function getAiringNotificationKey(entry) {
+  return [
+    entry.kind,
+    entry.category,
+    entry.source,
+    entry.title,
+    entry.code,
+    entry.timestamp
+  ].map((part) => normalizeText(part)).join("|");
+}
+
+function getAiringNotificationCandidates() {
+  const entries = [
+    ...airingScheduleState.episodes,
+    ...airingScheduleState.seasons
+  ];
+  const now = Date.now();
+  const leadTime = AIRING_NOTIFICATION_LEAD_MINUTES * 60 * 1000;
+  const recentlyAiredGrace = 5 * 60 * 1000;
+
+  return entries.filter((entry) => {
+    const timeUntilAiring = entry.timestamp - now;
+
+    return (
+      isAnimeScheduleCategory(entry.category) &&
+      !entry.dateOnly &&
+      Number.isFinite(entry.timestamp) &&
+      timeUntilAiring <= leadTime &&
+      timeUntilAiring >= -recentlyAiredGrace
+    );
+  });
+}
+
+function showAiringBrowserNotification(entry) {
+  const title = entry.kind === "season"
+    ? `${entry.title} season starts soon`
+    : `${entry.title} airs soon`;
+  const body = [
+    entry.code,
+    getScheduleDateLabel(entry.timestamp, false),
+    entry.subtitle
+  ].filter(Boolean).join(" | ");
+
+  try {
+    new Notification(title, {
+      body,
+      tag: getAiringNotificationKey(entry),
+      renotify: false
+    });
+  } catch (error) {
+    // Browser notification can fail in restricted contexts; keep the in-app toast.
+  }
+
+  showToast(`${title}: ${entry.code}`, "info");
+}
+
+function checkAiringNotifications() {
+  if (
+    !airingNotificationsEnabled ||
+    !isBrowserNotificationSupported() ||
+    Notification.permission !== "granted"
+  ) {
+    return;
+  }
+
+  const seenMap = pruneSeenAiringNotifications(readSeenAiringNotifications());
+  let hasNewNotification = false;
+
+  getAiringNotificationCandidates().forEach((entry) => {
+    const key = getAiringNotificationKey(entry);
+
+    if (seenMap[key]) {
+      return;
+    }
+
+    seenMap[key] = Date.now();
+    hasNewNotification = true;
+    showAiringBrowserNotification(entry);
+  });
+
+  if (hasNewNotification) {
+    saveSeenAiringNotifications(seenMap);
+  }
+}
+
+function shouldRefreshAiringScheduleForNotifications() {
+  if (!currentUser || airingScheduleState.isLoading) {
+    return false;
+  }
+
+  const updatedAt = Date.parse(airingScheduleState.updatedAt || "");
+
+  return !Number.isFinite(updatedAt) || Date.now() - updatedAt > AIRING_NOTIFICATION_REFRESH_MS;
+}
+
+function runAiringNotificationTick() {
+  if (!airingNotificationsEnabled) {
+    stopAiringNotificationTimer();
+    return;
+  }
+
+  if (shouldRefreshAiringScheduleForNotifications()) {
+    void refreshAiringSchedule();
+    return;
+  }
+
+  checkAiringNotifications();
+}
+
+function startAiringNotificationTimer() {
+  if (!airingNotificationsEnabled || airingNotificationTimer) {
+    return;
+  }
+
+  airingNotificationTimer = window.setInterval(
+    runAiringNotificationTick,
+    AIRING_NOTIFICATION_CHECK_MS
+  );
+  runAiringNotificationTick();
+}
+
+function stopAiringNotificationTimer() {
+  if (!airingNotificationTimer) {
+    return;
+  }
+
+  window.clearInterval(airingNotificationTimer);
+  airingNotificationTimer = null;
+}
+
+function syncAiringNotificationControls() {
+  const button = document.getElementById("airingNotificationButton");
+  const status = document.getElementById("airingNotificationStatus");
+  const isSupported = isBrowserNotificationSupported();
+  const permission = isSupported ? Notification.permission : "unsupported";
+
+  if (button) {
+    button.disabled = !isSupported || permission === "denied";
+    button.classList.toggle("active", airingNotificationsEnabled);
+    button.setAttribute("aria-pressed", String(airingNotificationsEnabled));
+    button.textContent = airingNotificationsEnabled ? "Notifications On" : "Notify Me";
+  }
+
+  if (!status) {
+    return;
+  }
+
+  if (!isSupported) {
+    status.textContent = "Browser notifications are not supported here.";
+  } else if (permission === "denied") {
+    status.textContent = "Notifications are blocked in browser settings.";
+  } else if (airingNotificationsEnabled) {
+    status.textContent =
+      `Alerts are on for exact Anime/Donghua airings ${AIRING_NOTIFICATION_LEAD_MINUTES} minutes before release.`;
+  } else {
+    status.textContent = "Turn on alerts for exact Anime/Donghua airing times.";
+  }
+}
+
+async function toggleAiringNotifications() {
+  if (!isBrowserNotificationSupported()) {
+    showWarning("Browser notifications are not supported here.");
+    syncAiringNotificationControls();
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    showWarning("Notifications are blocked. Allow them from your browser settings first.");
+    syncAiringNotificationControls();
+    return;
+  }
+
+  if (!airingNotificationsEnabled && Notification.permission !== "granted") {
+    const permission = await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      showWarning("Notification permission was not allowed.");
+      syncAiringNotificationControls();
+      return;
+    }
+  }
+
+  saveAiringNotificationPreference(!airingNotificationsEnabled);
+
+  if (airingNotificationsEnabled) {
+    startAiringNotificationTimer();
+    checkAiringNotifications();
+    showSuccess("Airing notifications enabled.");
+  } else {
+    stopAiringNotificationTimer();
+    showSuccess("Airing notifications disabled.");
+  }
+
+  syncAiringNotificationControls();
+}
+
 function setAiringRefreshBusy(isBusy) {
   const button = document.getElementById("airingRefreshButton");
 
@@ -2339,6 +2596,7 @@ function renderAiringSchedule() {
   syncAiringTabs();
   syncAiringCategoryFilters();
   syncAiringSortControl();
+  syncAiringNotificationControls();
 
   if (airingScheduleState.isLoading) {
     summaryNode.textContent =
@@ -2366,6 +2624,7 @@ function renderAiringSchedule() {
   syncAiringTabs();
   syncAiringCategoryFilters();
   syncAiringSortControl();
+  syncAiringNotificationControls();
 }
 
 function openAiringModal() {
@@ -2457,6 +2716,7 @@ async function refreshAiringSchedule() {
 
   setAiringRefreshBusy(false);
   renderAiringSchedule();
+  checkAiringNotifications();
 }
 
 function openAddSeries() {
@@ -5072,6 +5332,7 @@ async function startAuthListener() {
       applyProfileAvatar();
       updateUsernameSettingsUI();
       render();
+      startAiringNotificationTimer();
     } catch (error) {
       if (loadToken !== authLoadToken) {
         return;
@@ -5090,10 +5351,12 @@ function initApp() {
   bindEventListeners();
   loadSavedTheme();
   loadDefaultViewPreferences();
+  airingNotificationsEnabled = readAiringNotificationPreference();
   loadProfileAvatar();
   updateUsernameSettingsUI();
   render();
   void syncSharedListFromLocation();
+  startAiringNotificationTimer();
   void startAuthListener();
 }
 
@@ -5145,5 +5408,6 @@ window.closeSeasonEditModal = closeSeasonEditModal;
 window.openAiringModal = openAiringModal;
 window.closeAiringModal = closeAiringModal;
 window.refreshAiringSchedule = refreshAiringSchedule;
+window.toggleAiringNotifications = toggleAiringNotifications;
 window.confirmDelete = confirmDelete;
 window.triggerProfileUpload = triggerProfileUpload;
