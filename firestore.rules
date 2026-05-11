@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isValidUsernamePayload(usernameKey) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'username',
+          'usernameKey',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.usernameKey == usernameKey
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 24
+        && request.resource.data.usernameKey is string
+        && request.resource.data.usernameKey.size() >= 3
+        && request.resource.data.usernameKey.size() <= 24
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function isValidSharePayload() {
+      return request.resource.data.keys().hasOnly([
+          'v',
+          'u',
+          'i',
+          'ownerUid',
+          'createdAt'
+        ])
+        && request.resource.data.v == 1
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.u is string
+        && request.resource.data.u.size() <= 40
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdAt.size() <= 40
+        && request.resource.data.i is list
+        && request.resource.data.i.size() > 0
+        && request.resource.data.i.size() <= 100;
+    }
+
+    match /users/{uid} {
+      allow get, create, update, delete: if isOwner(uid);
+      allow list: if false;
+    }
+
+    match /usernames/{usernameKey} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn()
+        && !exists(/databases/$(database)/documents/usernames/$(usernameKey))
+        && isValidUsernamePayload(usernameKey);
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && isValidUsernamePayload(usernameKey);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /sharedLists/{shareId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn() && isValidSharePayload();
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && isValidSharePayload();
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
