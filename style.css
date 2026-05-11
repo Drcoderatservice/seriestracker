@@ -1717,6 +1717,14 @@ section h2 {
   line-height: 1.35;
 }
 
+.airing-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .airing-refresh-btn,
 .airing-notify-btn {
   width: auto !important;
@@ -3742,18 +3750,24 @@ body[data-theme="ocean-night"] .login-helper-link {
     padding-right: 44px;
   }
 
+  .airing-head-actions {
+    width: 100%;
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .airing-modal {
     width: calc(100vw - 12px);
     height: calc(100vh - 12px);
     padding: 14px;
   }
 
-  .airing-refresh-btn {
-    width: 100% !important;
-  }
-
+  .airing-refresh-btn,
   .airing-notify-btn {
     width: 100% !important;
+    padding-left: 10px;
+    padding-right: 10px;
   }
 
   .airing-sort-control {

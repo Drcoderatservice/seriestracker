@@ -752,23 +752,25 @@
           <p id="airingSummary" class="modal-subtext">Upcoming episodes and seasons will appear here.</p>
         </div>
 
-        <button
-          type="button"
-          id="airingRefreshButton"
-          class="airing-refresh-btn"
-          onclick="refreshAiringSchedule()"
-        >
-          Refresh
-        </button>
-        <button
-          type="button"
-          id="airingNotificationButton"
-          class="airing-notify-btn"
-          aria-pressed="false"
-          onclick="toggleAiringNotifications()"
-        >
-          Notify Me
-        </button>
+        <div class="airing-head-actions">
+          <button
+            type="button"
+            id="airingRefreshButton"
+            class="airing-refresh-btn"
+            onclick="refreshAiringSchedule()"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            id="airingNotificationButton"
+            class="airing-notify-btn"
+            aria-pressed="false"
+            onclick="toggleAiringNotifications()"
+          >
+            Notify Me
+          </button>
+        </div>
       </div>
 
       <div id="airingNotificationStatus" class="airing-notification-status"></div>
