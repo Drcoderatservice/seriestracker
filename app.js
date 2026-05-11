@@ -1873,6 +1873,16 @@ function buildShareLinkFromId(shareId) {
   return url.toString();
 }
 
+function buildEmbeddedShareLink(items) {
+  const url = new URL(window.location.href);
+  const shareValue = encodeSharePayload(createSharePayload(items));
+
+  url.search = "";
+  url.hash = `${SHARE_HASH_KEY}=${encodeURIComponent(shareValue)}`;
+
+  return url.toString();
+}
+
 async function createShortShareLink(items) {
   if (!currentUser) {
     throw new Error("Login required to create a share link.");
@@ -1894,6 +1904,14 @@ async function createShortShareLink(items) {
   });
 
   return buildShareLinkFromId(shareId);
+}
+
+async function createShareLink(items) {
+  try {
+    return await createShortShareLink(items);
+  } catch (error) {
+    return buildEmbeddedShareLink(items);
+  }
 }
 
 function sanitizeSharedListPayload(payload) {
@@ -2064,13 +2082,13 @@ async function copyShareLink() {
   let link = "";
 
   try {
-    link = await createShortShareLink(selectedItems);
+    link = await createShareLink(selectedItems);
   } catch (error) {
     const fallbackText = buildShareMessage(selectedItems, { includeLink: false });
 
     if (await copyTextToClipboard(fallbackText)) {
       closeShareModal();
-      showWarning("Short link needs Firebase sharing rules. Share text copied instead.");
+      showWarning("Share link could not be created. Share text copied instead.");
       return;
     }
 
@@ -2098,9 +2116,9 @@ async function shareSelectedTitles() {
   let link = "";
 
   try {
-    link = await createShortShareLink(selectedItems);
+    link = await createShareLink(selectedItems);
   } catch (error) {
-    showWarning("Short link could not be created, so sharing text only.");
+    showWarning("Share link could not be created, so sharing text only.");
   }
 
   const text = buildShareMessage(selectedItems, {
