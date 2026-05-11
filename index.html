@@ -20,11 +20,11 @@
 <meta name="twitter:title" content="SeriesTracker - Anime, Drama & Movie Watch Tracker">
 <meta name="twitter:description" content="A clean watch tracker for anime, donghua, dramas, movies, web series, episodes, favorites, and airing schedules.">
 <meta name="twitter:image" content="dragon-bg.jpg">
-<meta name="app-version" content="20260510-airing-notifications">
+<meta name="app-version" content="20260510-airing-preview">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="preconnect" href="https://identitytoolkit.googleapis.com">
-<link rel="stylesheet" href="style.css?v=20260510-airing-notifications">
+<link rel="stylesheet" href="style.css?v=20260510-airing-preview">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -234,8 +234,29 @@
   </section>
 
   <section id="currentlySection" class="currently hidden">
-    <h2>Currently Watching</h2>
-    <div id="currentlyWatching" class="row"></div>
+    <div class="currently-layout">
+      <div class="currently-main">
+        <h2>Currently Watching</h2>
+        <div id="currentlyWatching" class="row"></div>
+      </div>
+
+      <aside class="currently-airing" aria-labelledby="airingPreviewTitle">
+        <div class="airing-preview-head">
+          <div>
+            <p class="airing-preview-kicker">On Air</p>
+            <h2 id="airingPreviewTitle">Airing Series</h2>
+          </div>
+          <button type="button" class="airing-preview-more" onclick="openAiringModal()">More</button>
+        </div>
+        <div id="airingPreviewDays" class="airing-preview-days" role="tablist" aria-label="Airing days"></div>
+        <div id="airingPreviewStatus" class="airing-preview-status"></div>
+        <div id="airingPreviewList" class="airing-preview-list"></div>
+        <div class="airing-preview-foot">
+          <span id="airingPreviewUpdatedAt">--</span>
+          <button type="button" class="airing-preview-refresh" onclick="refreshAiringSchedule()">Refresh</button>
+        </div>
+      </aside>
+    </div>
   </section>
 
   <section id="librarySection" class="hidden">
@@ -944,6 +965,6 @@
     window.signOut = signOut;
     window.firebaseApp = app;
   </script>
-  <script src="app.js?v=20260510-airing-notifications"></script>
+  <script src="app.js?v=20260510-airing-preview"></script>
 </body>
 </html>

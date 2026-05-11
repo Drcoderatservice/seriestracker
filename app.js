@@ -73,6 +73,7 @@ let activeSeasonsTitle = "";
 let activeAiringTab = "episodes";
 let activeAiringCategoryFilter = "All";
 let activeAiringSortFilter = "Oldest";
+let activeAiringPreviewDay = "";
 let profileAvatarData = "";
 let saveQueue = Promise.resolve();
 let authListenerStarted = false;
@@ -83,6 +84,8 @@ let airingLoadToken = 0;
 let airingCountdownTimer = null;
 let airingNotificationTimer = null;
 let airingNotificationsEnabled = false;
+let airingPreviewRefreshQueued = false;
+let airingPreviewScheduleSignature = "";
 let sharedListFromLink = null;
 let activeCardCopyTitle = "";
 let airingScheduleState = {
@@ -488,6 +491,19 @@ function getAiringScheduleCandidates() {
   return tracker.filter(
     (item) => item && item.mediaType === "tv" && item.category !== "Movies"
   );
+}
+
+function getAiringScheduleCandidateSignature(candidates = getAiringScheduleCandidates()) {
+  return candidates
+    .map((item) => [
+      item.title,
+      item.category,
+      item.status,
+      item.watched,
+      item.total
+    ].map((value) => String(value ?? "").trim()).join(":"))
+    .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }))
+    .join("|");
 }
 
 function isWatchingScheduleItem(item) {
@@ -2378,13 +2394,17 @@ async function toggleAiringNotifications() {
 
 function setAiringRefreshBusy(isBusy) {
   const button = document.getElementById("airingRefreshButton");
+  const previewButton = document.querySelector(".airing-preview-refresh");
 
-  if (!button) {
-    return;
+  if (button) {
+    button.disabled = isBusy;
+    button.textContent = isBusy ? "Checking..." : "Refresh";
   }
 
-  button.disabled = isBusy;
-  button.textContent = isBusy ? "Checking..." : "Refresh";
+  if (previewButton) {
+    previewButton.disabled = isBusy || !currentUser;
+    previewButton.textContent = isBusy ? "Checking..." : "Refresh";
+  }
 }
 
 function startAiringCountdownTimer() {
@@ -2501,6 +2521,334 @@ function getVisibleAiringEntries(kind) {
     : airingScheduleState.episodes;
 
   return sortVisibleAiringEntries(entries.filter(matchesAiringCategoryFilter));
+}
+
+function getLocalDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getAiringPreviewEntryDayKey(entry) {
+  return getLocalDateKey(entry?.timestamp || 0);
+}
+
+function getAiringPreviewEntries() {
+  return sortAiringEntries(airingScheduleState.episodes)
+    .filter((entry) => isUpcomingTimestamp(entry.timestamp));
+}
+
+function getAiringPreviewBaseDayKeys() {
+  const todayStart = getTodayStartTime();
+
+  return [0, 1, 2].map((offset) => getLocalDateKey(todayStart + offset * 86400000));
+}
+
+function formatAiringPreviewWeekday(date) {
+  try {
+    return new Intl.DateTimeFormat("en-IN", { weekday: "short" }).format(date).toUpperCase();
+  } catch (error) {
+    return date.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase();
+  }
+}
+
+function getAiringPreviewDays(entries) {
+  const baseKeys = getAiringPreviewBaseDayKeys();
+  const dayCounts = entries.reduce((counts, entry) => {
+    const dayKey = getAiringPreviewEntryDayKey(entry);
+
+    if (dayKey) {
+      counts.set(dayKey, (counts.get(dayKey) || 0) + 1);
+    }
+
+    return counts;
+  }, new Map());
+  const baseHasEntries = baseKeys.some((dayKey) => dayCounts.has(dayKey));
+  const dayKeys = baseHasEntries || !entries.length ? [...baseKeys] : [];
+
+  entries.forEach((entry) => {
+    const dayKey = getAiringPreviewEntryDayKey(entry);
+
+    if (dayKey && !dayKeys.includes(dayKey)) {
+      dayKeys.push(dayKey);
+    }
+  });
+
+  let offset = 1;
+  while (dayKeys.length < 3) {
+    const dayKey = getLocalDateKey(getTodayStartTime() + offset * 86400000);
+
+    if (!dayKeys.includes(dayKey)) {
+      dayKeys.push(dayKey);
+    }
+
+    offset += 1;
+  }
+
+  return dayKeys
+    .slice(0, 3)
+    .sort((left, right) => {
+      const leftDate = createLocalDateFromYmd(left);
+      const rightDate = createLocalDateFromYmd(right);
+
+      return (leftDate?.getTime() || 0) - (rightDate?.getTime() || 0);
+    })
+    .map((dayKey) => {
+      const date = createLocalDateFromYmd(dayKey) || new Date();
+
+      return {
+        key: dayKey,
+        weekday: formatAiringPreviewWeekday(date),
+        date: String(date.getDate()).padStart(2, "0"),
+        count: dayCounts.get(dayKey) || 0
+      };
+    });
+}
+
+function getAiringPreviewSelectedDay(days) {
+  return (
+    days.find((day) => day.key === activeAiringPreviewDay) ||
+    days.find((day) => day.count > 0) ||
+    days[0] ||
+    null
+  );
+}
+
+function formatAiringPreviewTime(entry) {
+  if (!Number.isFinite(entry?.timestamp) || entry.timestamp <= 0) {
+    return "TBA";
+  }
+
+  if (entry.dateOnly) {
+    return "--:--";
+  }
+
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(new Date(entry.timestamp));
+  } catch (error) {
+    return new Date(entry.timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+}
+
+function formatAiringPreviewEpisode(entry) {
+  const code = String(entry?.code || "").trim();
+  const episodeMatch = /\bEpisode\s+(\d+)\b/i.exec(code) || /\bE(\d+)\b/i.exec(code);
+
+  if (episodeMatch) {
+    return `EP ${episodeMatch[1]}`;
+  }
+
+  return code || "EP TBA";
+}
+
+function renderAiringPreviewDays(days, selectedDayKey) {
+  return days.map((day) => {
+    const isActive = day.key === selectedDayKey;
+    const countLabel = day.count === 1 ? "1 title" : `${day.count} titles`;
+
+    return `
+      <button
+        type="button"
+        class="airing-preview-day${isActive ? " active" : ""}"
+        data-airing-preview-day="${escapeHtml(day.key)}"
+        role="tab"
+        aria-selected="${isActive ? "true" : "false"}"
+        aria-label="${escapeHtml(`${day.weekday} ${day.date}, ${countLabel}`)}"
+      >
+        <span class="weekday">${escapeHtml(day.weekday)}</span>
+        <span class="date">${escapeHtml(day.date)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderAiringPreviewEmpty(title, message) {
+  return `
+    <div class="airing-preview-empty">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
+function renderAiringPreviewEntry(entry, isNext) {
+  return `
+    <article class="airing-preview-item${isNext ? " is-next" : ""}">
+      <span class="airing-preview-time">${escapeHtml(formatAiringPreviewTime(entry))}</span>
+      <span class="airing-preview-title" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</span>
+      <span class="airing-preview-episode">${escapeHtml(formatAiringPreviewEpisode(entry))}</span>
+    </article>
+  `;
+}
+
+function renderAiringPreviewList(entries, selectedDayKey) {
+  if (airingScheduleState.isLoading) {
+    return renderAiringPreviewEmpty(
+      "Checking schedule...",
+      "Loading latest airing data."
+    );
+  }
+
+  if (!airingScheduleState.candidateCount && airingScheduleState.updatedAt) {
+    return renderAiringPreviewEmpty(
+      "No series to check",
+      "Add TV titles first."
+    );
+  }
+
+  if (!airingScheduleState.updatedAt) {
+    return renderAiringPreviewEmpty(
+      "Preparing schedule",
+      "Airing data will appear here."
+    );
+  }
+
+  const dayEntries = entries
+    .filter((entry) => getAiringPreviewEntryDayKey(entry) === selectedDayKey)
+    .slice(0, 10);
+
+  if (!dayEntries.length) {
+    return renderAiringPreviewEmpty(
+      "No airing this day",
+      "Try another day or open More."
+    );
+  }
+
+  const nextIndex = dayEntries.findIndex((entry) => entry.timestamp >= Date.now());
+
+  return dayEntries
+    .map((entry, index) => renderAiringPreviewEntry(entry, index === nextIndex))
+    .join("");
+}
+
+function getAiringPreviewStatusText(entries, selectedDayKey) {
+  if (!currentUser) {
+    return "";
+  }
+
+  if (airingScheduleState.isLoading) {
+    return "Checking latest episodes...";
+  }
+
+  const dayCount = entries.filter(
+    (entry) => getAiringPreviewEntryDayKey(entry) === selectedDayKey
+  ).length;
+
+  if (dayCount > 0) {
+    return dayCount === 1 ? "1 episode scheduled." : `${dayCount} episodes scheduled.`;
+  }
+
+  if (airingScheduleState.failedCount) {
+    return `${airingScheduleState.failedCount} titles could not be checked.`;
+  }
+
+  return airingScheduleState.updatedAt ? "No episodes found for this day." : "";
+}
+
+function getAiringPreviewUpdatedText() {
+  if (!currentUser) {
+    return "--";
+  }
+
+  if (airingScheduleState.isLoading) {
+    return "Refreshing...";
+  }
+
+  const updatedAt = Date.parse(airingScheduleState.updatedAt || "");
+
+  if (Number.isFinite(updatedAt)) {
+    return `Updated ${getScheduleDateLabel(updatedAt)}`;
+  }
+
+  return "Waiting for schedule";
+}
+
+function renderAiringPreview() {
+  const daysNode = document.getElementById("airingPreviewDays");
+  const statusNode = document.getElementById("airingPreviewStatus");
+  const listNode = document.getElementById("airingPreviewList");
+  const updatedNode = document.getElementById("airingPreviewUpdatedAt");
+  const refreshButton = document.querySelector(".airing-preview-refresh");
+
+  if (!daysNode || !statusNode || !listNode || !updatedNode) {
+    return;
+  }
+
+  if (refreshButton) {
+    refreshButton.disabled = airingScheduleState.isLoading || !currentUser;
+    refreshButton.textContent = airingScheduleState.isLoading ? "Checking..." : "Refresh";
+  }
+
+  if (!currentUser) {
+    activeAiringPreviewDay = "";
+    daysNode.innerHTML = "";
+    statusNode.textContent = "";
+    listNode.innerHTML = "";
+    updatedNode.textContent = "--";
+    return;
+  }
+
+  const entries = getAiringPreviewEntries();
+  const days = getAiringPreviewDays(entries);
+  const selectedDay = getAiringPreviewSelectedDay(days);
+  const selectedDayKey = selectedDay?.key || "";
+
+  activeAiringPreviewDay = selectedDayKey;
+  daysNode.innerHTML = renderAiringPreviewDays(days, selectedDayKey);
+  statusNode.textContent = getAiringPreviewStatusText(entries, selectedDayKey);
+  listNode.innerHTML = renderAiringPreviewList(entries, selectedDayKey);
+  updatedNode.textContent = getAiringPreviewUpdatedText();
+}
+
+function shouldRefreshAiringPreviewSchedule() {
+  if (!currentUser || airingScheduleState.isLoading) {
+    return false;
+  }
+
+  const candidateSignature = getAiringScheduleCandidateSignature();
+
+  if (candidateSignature !== airingPreviewScheduleSignature) {
+    return true;
+  }
+
+  const updatedAt = Date.parse(airingScheduleState.updatedAt || "");
+
+  return !Number.isFinite(updatedAt) || Date.now() - updatedAt > AIRING_NOTIFICATION_REFRESH_MS;
+}
+
+function queueAiringPreviewRefresh() {
+  if (airingPreviewRefreshQueued || !shouldRefreshAiringPreviewSchedule()) {
+    return;
+  }
+
+  airingPreviewRefreshQueued = true;
+  window.setTimeout(() => {
+    airingPreviewRefreshQueued = false;
+
+    if (shouldRefreshAiringPreviewSchedule()) {
+      void refreshAiringSchedule();
+    }
+  }, 0);
+}
+
+function setAiringPreviewDay(dayKey) {
+  activeAiringPreviewDay = String(dayKey || "");
+  renderAiringPreview();
 }
 
 function renderAiringPoster(entry) {
@@ -2625,6 +2973,7 @@ function renderAiringSchedule() {
   syncAiringCategoryFilters();
   syncAiringSortControl();
   syncAiringNotificationControls();
+  renderAiringPreview();
 }
 
 function openAiringModal() {
@@ -2652,6 +3001,7 @@ async function refreshAiringSchedule() {
   }
 
   const candidates = getAiringScheduleCandidates();
+  const candidateSignature = getAiringScheduleCandidateSignature(candidates);
   const loadToken = ++airingLoadToken;
 
   airingScheduleState = {
@@ -2675,6 +3025,7 @@ async function refreshAiringSchedule() {
       seasons: [],
       updatedAt: new Date().toISOString()
     };
+    airingPreviewScheduleSignature = candidateSignature;
     setAiringRefreshBusy(false);
     renderAiringSchedule();
     return;
@@ -2714,6 +3065,7 @@ async function refreshAiringSchedule() {
     updatedAt: new Date().toISOString()
   };
 
+  airingPreviewScheduleSignature = candidateSignature;
   setAiringRefreshBusy(false);
   renderAiringSchedule();
   checkAiringNotifications();
@@ -4337,6 +4689,7 @@ function render() {
         : renderStartupPanel();
     document.getElementById("currentlyWatching").innerHTML = "";
     document.getElementById("mainGrid").innerHTML = "";
+    renderAiringPreview();
     syncOpenSharePanel();
     return;
   }
@@ -4359,6 +4712,8 @@ function render() {
         "Nothing is in progress yet",
         "Titles you are currently watching will appear here first."
       );
+  renderAiringPreview();
+  queueAiringPreviewRefresh();
 
   let filtered =
     currentCategory === "Home"
@@ -5075,6 +5430,15 @@ function bindEventListeners() {
   document
     .getElementById("currentlyWatching")
     .addEventListener("click", handleCardAction);
+  document.getElementById("airingPreviewDays").addEventListener("click", (event) => {
+    const button = event.target.closest(".airing-preview-day");
+
+    if (!button) {
+      return;
+    }
+
+    setAiringPreviewDay(button.dataset.airingPreviewDay || "");
+  });
   document
     .getElementById("searchResults")
     .addEventListener("click", handleSearchResultAction);
