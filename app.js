@@ -1873,16 +1873,6 @@ function buildShareLinkFromId(shareId) {
   return url.toString();
 }
 
-function buildEmbeddedShareLink(items) {
-  const url = new URL(window.location.href);
-  const shareValue = encodeSharePayload(createSharePayload(items));
-
-  url.search = "";
-  url.hash = `${SHARE_HASH_KEY}=${encodeURIComponent(shareValue)}`;
-
-  return url.toString();
-}
-
 async function createShortShareLink(items) {
   if (!currentUser) {
     throw new Error("Login required to create a share link.");
@@ -1906,12 +1896,28 @@ async function createShortShareLink(items) {
   return buildShareLinkFromId(shareId);
 }
 
-async function createShareLink(items) {
-  try {
-    return await createShortShareLink(items);
-  } catch (error) {
-    return buildEmbeddedShareLink(items);
+function getShareLinkErrorMessage(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  const details = `${code} ${message}`.toLowerCase();
+
+  if (details.includes("blocked_by_client")) {
+    return "Browser is still blocking Firebase. Turn Shields/ad blocker off for this site.";
   }
+
+  if (code.includes("permission-denied") || details.includes("permission")) {
+    return "Firebase rules are still blocking short links. Check the published Firestore rules.";
+  }
+
+  if (details.includes("network") || details.includes("failed to fetch")) {
+    return "Firebase network request failed. Check connection or browser privacy blocking.";
+  }
+
+  if (details.includes("login required")) {
+    return "Log in first to create a short share link.";
+  }
+
+  return "Short link could not be created. Share text copied instead.";
 }
 
 function sanitizeSharedListPayload(payload) {
@@ -2082,13 +2088,16 @@ async function copyShareLink() {
   let link = "";
 
   try {
-    link = await createShareLink(selectedItems);
+    link = await createShortShareLink(selectedItems);
   } catch (error) {
     const fallbackText = buildShareMessage(selectedItems, { includeLink: false });
+    const message = getShareLinkErrorMessage(error);
+
+    console.warn("SeriesTracker short share link failed:", error);
 
     if (await copyTextToClipboard(fallbackText)) {
       closeShareModal();
-      showWarning("Share link could not be created. Share text copied instead.");
+      showWarning(message);
       return;
     }
 
@@ -2116,9 +2125,10 @@ async function shareSelectedTitles() {
   let link = "";
 
   try {
-    link = await createShareLink(selectedItems);
+    link = await createShortShareLink(selectedItems);
   } catch (error) {
-    showWarning("Share link could not be created, so sharing text only.");
+    console.warn("SeriesTracker short share link failed:", error);
+    showWarning(getShareLinkErrorMessage(error));
   }
 
   const text = buildShareMessage(selectedItems, {
