@@ -48,7 +48,7 @@ service cloud.firestore {
         && request.resource.data.createdAt.size() <= 40
         && request.resource.data.i is list
         && request.resource.data.i.size() > 0
-        && request.resource.data.i.size() <= 100;
+        && request.resource.data.i.size() <= 500;
     }
 
     match /users/{uid} {
