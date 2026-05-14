@@ -255,6 +255,20 @@ function normalizeText(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeSeasonId(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeDeletedSeasonIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(value.map(normalizeSeasonId).filter(Boolean))
+  ).slice(0, 100);
+}
+
 function normalizeFilterValue(value, allowedValues, fallback = "All") {
   return allowedValues.has(value) ? value : fallback;
 }
@@ -367,6 +381,16 @@ function buildKnownDonghuaSeasons(item, fallbackImage = item?.image || "") {
   }));
 }
 
+function filterDeletedSeasons(item, seasons) {
+  const deletedIds = new Set(normalizeDeletedSeasonIds(item?.deletedSeasonIds));
+
+  if (!deletedIds.size) {
+    return seasons;
+  }
+
+  return seasons.filter((season) => !deletedIds.has(normalizeSeasonId(season.id)));
+}
+
 function sanitizeSeasonList(seasons, fallbackImage = "") {
   if (!Array.isArray(seasons)) {
     return [];
@@ -465,13 +489,13 @@ function normalizeSeasonState(item) {
   }
 
   const seasons = hydrateSeasonStatuses(
-    sanitizeSeasonList(item.seasons, item.image),
+    filterDeletedSeasons(item, sanitizeSeasonList(item.seasons, item.image)),
     item.watched,
     item.status
   );
 
   item.seasons = seasons;
-  item.seasonCount = Math.max(seasons.length, Number.parseInt(item.seasonCount, 10) || 0);
+  item.seasonCount = getSeasonCount(item);
 
   return seasons;
 }
@@ -493,8 +517,27 @@ function getSeasonCount(item) {
     return 0;
   }
 
+  const knownOverride = getKnownDonghuaSeasonOverride(item);
+  const deletedSeasonIds = normalizeDeletedSeasonIds(item.deletedSeasonIds);
+  const visibleSeasons = Array.isArray(item.seasons)
+    ? filterDeletedSeasons(item, item.seasons)
+    : [];
+  const listCount = visibleSeasons.length;
+
+  if (knownOverride) {
+    const knownCount = filterDeletedSeasons(
+      item,
+      buildKnownDonghuaSeasons(item, item.image)
+    ).length;
+
+    return knownCount || listCount;
+  }
+
+  if (deletedSeasonIds.length) {
+    return listCount;
+  }
+
   const storedCount = Math.max(0, Number.parseInt(item.seasonCount, 10) || 0);
-  const listCount = Array.isArray(item.seasons) ? item.seasons.length : 0;
   return Math.max(storedCount, listCount);
 }
 
@@ -992,7 +1035,7 @@ async function fetchAniListScheduleForItem(item) {
   const matchedMedia = mediaResults.filter((media) =>
     isLikelyAniListMatch(item.title, media)
   );
-  const mediaList = matchedMedia.length ? matchedMedia : mediaResults;
+  const mediaList = matchedMedia;
 
   if (!mediaList.length) {
     return { episodes: [], seasons: [] };
@@ -1084,10 +1127,13 @@ function collectAniListSeasonMedia(item, mediaList) {
   };
 
   mediaList.forEach((media) => {
-    if (isLikelyAniListMatch(item.title, media)) {
-      addCandidate(media);
+    const matchesItem = isLikelyAniListMatch(item.title, media);
+
+    if (!matchesItem) {
+      return;
     }
 
+    addCandidate(media);
     const relations = Array.isArray(media?.relations?.edges)
       ? media.relations.edges
       : [];
@@ -1163,7 +1209,7 @@ async function fetchAniListDetailsForItem(item) {
   const matchedMedia = mediaResults.filter((media) =>
     isLikelyAniListMatch(item.title, media)
   );
-  const mediaList = matchedMedia.length ? matchedMedia : mediaResults;
+  const mediaList = matchedMedia;
   const primaryMedia = mediaList[0] || null;
   const seasons = buildAniListSeasonList(item, mediaList);
 
@@ -1375,7 +1421,15 @@ function sanitizeTrackerList(items) {
       const title = String(item.title || item.name || "Untitled").trim() || "Untitled";
       const image = getTmdbImageUrl(item.image);
       const mediaType = item.mediaType === "movie" ? "movie" : "tv";
-      const seasons = mediaType === "movie" ? [] : sanitizeSeasonList(item.seasons, image);
+      const category = String(item.category || "Anime").trim() || "Anime";
+      const deletedSeasonIds = normalizeDeletedSeasonIds(item.deletedSeasonIds);
+      const seasons =
+        mediaType === "movie"
+          ? []
+          : filterDeletedSeasons(
+              { deletedSeasonIds },
+              sanitizeSeasonList(item.seasons, image)
+            );
       const fallbackTotal =
         mediaType === "movie"
           ? 1
@@ -1394,6 +1448,15 @@ function sanitizeTrackerList(items) {
 
       const hydratedSeasons =
         mediaType === "movie" ? [] : hydrateSeasonStatuses(seasons, watched, status);
+      const hydratedItem = {
+        ...item,
+        title,
+        image,
+        category,
+        mediaType,
+        seasons: hydratedSeasons,
+        deletedSeasonIds
+      };
 
       return {
         id: item.id ?? null,
@@ -1403,16 +1466,11 @@ function sanitizeTrackerList(items) {
         watched,
         total,
         status,
-        category: String(item.category || "Anime").trim() || "Anime",
+        category,
         mediaType,
-        seasonCount:
-          mediaType === "movie"
-            ? 0
-            : Math.max(
-                hydratedSeasons.length,
-                Number.parseInt(item.seasonCount, 10) || 0
-              ),
+        seasonCount: mediaType === "movie" ? 0 : getSeasonCount(hydratedItem),
         seasons: hydratedSeasons,
+        deletedSeasonIds,
         overview: String(item.overview || "").trim(),
         detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
         createdAt: String(item.createdAt || "").trim(),
@@ -1466,6 +1524,7 @@ function createCloudTrackerPayload(items) {
       item.mediaType === "movie"
         ? []
         : sanitizeSeasonList(item.seasons, "").map(createCloudSeasonPayload),
+    deletedSeasonIds: normalizeDeletedSeasonIds(item.deletedSeasonIds),
     overview: String(item.overview || "").trim().slice(0, 1200),
     detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
     createdAt: item.createdAt,
@@ -4107,15 +4166,26 @@ function renderSeasonEditButton(title, season) {
   const encodedSeasonId = encodeURIComponent(String(season.id));
 
   return `
-    <button
-      type="button"
-      class="season-card-edit-btn"
-      data-action="edit-season"
-      data-title="${encodedTitle}"
-      data-season-id="${encodedSeasonId}"
-    >
-      Edit Season
-    </button>
+    <span class="season-card-actions">
+      <button
+        type="button"
+        class="season-card-action-btn season-card-edit-btn"
+        data-action="edit-season"
+        data-title="${encodedTitle}"
+        data-season-id="${encodedSeasonId}"
+      >
+        Edit Season
+      </button>
+      <button
+        type="button"
+        class="season-card-action-btn season-card-delete-btn"
+        data-action="delete-season"
+        data-title="${encodedTitle}"
+        data-season-id="${encodedSeasonId}"
+      >
+        Delete
+      </button>
+    </span>
   `;
 }
 
@@ -4193,12 +4263,32 @@ function pickRicherSeasonList(...seasonLists) {
     })[0] || [];
 }
 
-function preserveSeasonStatuses(nextSeasons, existingSeasons) {
+function isRelatedKnownDonghuaSeason(item, season) {
+  const override = getKnownDonghuaSeasonOverride(item);
+
+  if (!override) {
+    return true;
+  }
+
+  const name = normalizeText(season.name);
+  const label = normalizeText(getSeasonLabel(season));
+
+  return (
+    name === label ||
+    normalizeText(item.title).includes(name) ||
+    override.aliases.some((alias) => {
+      const normalizedAlias = normalizeText(alias);
+      return name.includes(normalizedAlias) || normalizedAlias.includes(name);
+    })
+  );
+}
+
+function preserveSeasonStatuses(nextSeasons, existingSeasons, item = null) {
   const byNumber = new Map();
   const byName = new Map();
 
   existingSeasons.forEach((season) => {
-    if (!season.status) {
+    if (!season.status || !isRelatedKnownDonghuaSeason(item, season)) {
       return;
     }
 
@@ -4225,18 +4315,32 @@ function shouldRefreshSeasonDetails(item, existingSeasons) {
     return false;
   }
 
+  const knownOverride = getKnownDonghuaSeasonOverride(item);
   const expectedSeasonCount = Math.max(
     0,
-    Number.parseInt(item.seasonCount, 10) || 0
+    Number.parseInt(item.seasonCount, 10) ||
+      knownOverride?.seasons?.length ||
+      0
   );
 
-  if (!existingSeasons.length) {
+  const knownVisibleSeasonCount = knownOverride
+    ? filterDeletedSeasons(
+        item,
+        buildKnownDonghuaSeasons(item, item.image)
+      ).length
+    : 0;
+
+  if (!existingSeasons.length && (!knownOverride || knownVisibleSeasonCount > 0)) {
     return true;
   }
 
-  const knownOverride = getKnownDonghuaSeasonOverride(item);
+  if (knownOverride && existingSeasons.length !== knownVisibleSeasonCount) {
+    return true;
+  }
 
-  if (knownOverride && existingSeasons.length < knownOverride.seasons.length) {
+  if (knownOverride && existingSeasons.some((season) =>
+    !isRelatedKnownDonghuaSeason(item, season)
+  )) {
     return true;
   }
 
@@ -4248,7 +4352,7 @@ function shouldRefreshSeasonDetails(item, existingSeasons) {
     return true;
   }
 
-  if (!String(item.overview || "").trim()) {
+  if (!knownOverride && !String(item.overview || "").trim()) {
     return true;
   }
 
@@ -4260,20 +4364,24 @@ async function ensureSeasonData(item) {
     return [];
   }
 
-  const existingSeasons = sanitizeSeasonList(item.seasons, item.image);
+  const existingSeasons = filterDeletedSeasons(
+    item,
+    sanitizeSeasonList(item.seasons, item.image)
+  );
   item.overview = String(item.overview || "").trim();
 
   if (!shouldRefreshSeasonDetails(item, existingSeasons)) {
     item.seasons = existingSeasons;
-    item.seasonCount = Math.max(getSeasonCount(item), existingSeasons.length);
+    item.seasonCount = getSeasonCount(item);
     return existingSeasons;
   }
 
-  const shouldFetchAniList = isAnimeScheduleCategory(item.category);
+  const knownOverride = getKnownDonghuaSeasonOverride(item);
+  const shouldFetchAniList = isAnimeScheduleCategory(item.category) && !knownOverride;
 
-  if (!item.id && !shouldFetchAniList) {
+  if (!item.id && !shouldFetchAniList && !knownOverride) {
     item.seasons = existingSeasons;
-    item.seasonCount = Math.max(getSeasonCount(item), existingSeasons.length);
+    item.seasonCount = getSeasonCount(item);
     return existingSeasons;
   }
 
@@ -4288,20 +4396,28 @@ async function ensureSeasonData(item) {
     item.image ||
     getTmdbImageUrl(details?.poster_path) ||
     getTmdbImageUrl(aniListDetails?.poster_path);
-  const knownDonghuaSeasons = sanitizeSeasonList(
-    buildKnownDonghuaSeasons(item, fallbackImage),
-    fallbackImage
+  const knownDonghuaSeasons = filterDeletedSeasons(
+    item,
+    sanitizeSeasonList(
+      buildKnownDonghuaSeasons(item, fallbackImage),
+      fallbackImage
+    )
   );
   const tmdbSeasons = sanitizeSeasonList(details?.seasons, fallbackImage);
   const aniListSeasons = sanitizeSeasonList(aniListDetails?.seasons, fallbackImage);
-  const fetchedSeasons = pickRicherSeasonList(
-    knownDonghuaSeasons,
-    aniListSeasons,
-    tmdbSeasons
-  );
-  const seasons = preserveSeasonStatuses(
-    fetchedSeasons.length ? fetchedSeasons : existingSeasons,
-    existingSeasons
+  const fetchedSeasons = knownOverride
+    ? knownDonghuaSeasons
+    : pickRicherSeasonList(
+        aniListSeasons,
+        tmdbSeasons
+      );
+  const seasons = filterDeletedSeasons(
+    item,
+    preserveSeasonStatuses(
+      fetchedSeasons.length ? fetchedSeasons : existingSeasons,
+      existingSeasons,
+      item
+    )
   );
   const fetchedOverview = [
     item.overview,
@@ -4318,18 +4434,26 @@ async function ensureSeasonData(item) {
   item.image = fallbackImage;
   item.overview = fetchedOverview;
   item.seasons = seasons;
-  item.seasonCount = Math.max(
-    seasons.length,
-    Number.parseInt(details?.number_of_seasons, 10) || 0,
-    Number.parseInt(aniListDetails?.number_of_seasons, 10) || 0
-  );
-  item.total = Math.max(
-    Number.parseInt(item.total, 10) || 0,
-    Number.parseInt(details?.number_of_episodes, 10) || 0,
-    Number.parseInt(aniListDetails?.number_of_episodes, 10) || 0,
-    totalEpisodesFromSeasons,
-    1
-  );
+  item.seasonCount = knownOverride
+    ? seasons.length
+    : Math.max(
+        seasons.length,
+        Number.parseInt(details?.number_of_seasons, 10) || 0,
+        Number.parseInt(aniListDetails?.number_of_seasons, 10) || 0
+      );
+  item.total = knownOverride
+    ? Math.max(
+        Number.parseInt(item.watched, 10) || 0,
+        totalEpisodesFromSeasons,
+        1
+      )
+    : Math.max(
+        Number.parseInt(item.total, 10) || 0,
+        Number.parseInt(details?.number_of_episodes, 10) || 0,
+        Number.parseInt(aniListDetails?.number_of_episodes, 10) || 0,
+        totalEpisodesFromSeasons,
+        1
+      );
 
   if (details || aniListDetails) {
     item.detailsHydratedAt = createTrackerTimestamp();
@@ -4467,7 +4591,7 @@ function syncItemProgressFromSeasons(item) {
   item.total = total;
   item.watched = Math.min(total, Math.max(0, watched));
   item.status = nextStatus;
-  item.seasonCount = Math.max(seasons.length, Number.parseInt(item.seasonCount, 10) || 0);
+  item.seasonCount = getSeasonCount(item);
   touchTrackerItem(item);
 }
 
@@ -4512,6 +4636,40 @@ function setSeasonStatus(title, seasonId, nextStatus) {
   render();
   refreshSeasonsModal(item);
   void queueTrackerSync();
+}
+
+function deleteSeason(title, seasonId) {
+  const item = findItem(title);
+
+  if (!item || item.mediaType !== "tv") {
+    showError("Could not find that title anymore.");
+    return;
+  }
+
+  const seasons = normalizeSeasonState(item);
+  const nextSeasons = seasons.filter((season) => String(season.id) !== String(seasonId));
+
+  if (nextSeasons.length === seasons.length) {
+    showError("Could not find that season.");
+    return;
+  }
+
+  item.seasons = nextSeasons;
+  item.deletedSeasonIds = normalizeDeletedSeasonIds([
+    ...normalizeDeletedSeasonIds(item.deletedSeasonIds),
+    seasonId
+  ]);
+  item.seasonCount = nextSeasons.length;
+  item.total = Math.max(
+    1,
+    nextSeasons.reduce((count, season) => count + season.episodeCount, 0)
+  );
+  item.watched = Math.min(item.watched, item.total);
+  syncItemProgressFromSeasons(item);
+  render();
+  refreshSeasonsModal(item);
+  void queueTrackerSync();
+  showSuccess("Season removed from details.");
 }
 
 function submitSeasonEditForm(event) {
@@ -5903,6 +6061,16 @@ function handleSeasonAction(event) {
     const seasonId = decodeURIComponent(editButton.dataset.seasonId || "");
 
     openSeasonEdit(title, seasonId);
+    return;
+  }
+
+  const deleteButton = event.target.closest('button[data-action="delete-season"]');
+
+  if (deleteButton) {
+    const title = decodeURIComponent(deleteButton.dataset.title || "");
+    const seasonId = decodeURIComponent(deleteButton.dataset.seasonId || "");
+
+    deleteSeason(title, seasonId);
     return;
   }
 

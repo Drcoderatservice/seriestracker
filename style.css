@@ -2147,7 +2147,14 @@ section h2 {
   line-height: 1.35;
 }
 
-.season-card-edit-btn {
+.season-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.season-card-action-btn {
   width: auto !important;
   margin-top: 0 !important;
   padding: 10px 14px;
@@ -2156,6 +2163,10 @@ section h2 {
   font-weight: 700;
   background: rgba(255, 255, 255, 0.08);
   white-space: nowrap;
+}
+
+.season-card-delete-btn {
+  background: rgba(var(--danger-rgb), 0.24);
 }
 
 .season-meta {
@@ -3731,7 +3742,11 @@ body[data-theme="ocean-night"] .login-helper-link {
     align-items: stretch;
   }
 
-  .season-card-edit-btn {
+  .season-card-actions {
+    justify-content: stretch;
+  }
+
+  .season-card-action-btn {
     width: 100% !important;
   }
 
