@@ -305,7 +305,7 @@ function sanitizeSeasonList(seasons, fallbackImage = "") {
           : ""
       };
     })
-    .filter((season) => season.episodeCount > 0)
+    .filter((season) => season.episodeCount > 0 || season.seasonNumber > 0)
     .sort((left, right) => {
       const leftOrder = left.seasonNumber === 0 ? Number.MAX_SAFE_INTEGER : left.seasonNumber;
       const rightOrder =
@@ -483,6 +483,66 @@ const ANILIST_AIRING_QUERY = `
   }
 `;
 
+const ANILIST_DETAILS_QUERY = `
+  query ($search: String) {
+    Page(page: 1, perPage: 10) {
+      media(search: $search, type: ANIME) {
+        id
+        type
+        format
+        status
+        episodes
+        seasonYear
+        description(asHtml: false)
+        title {
+          romaji
+          english
+          native
+          userPreferred
+        }
+        coverImage {
+          large
+          medium
+        }
+        startDate {
+          year
+          month
+          day
+        }
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              type
+              format
+              status
+              episodes
+              seasonYear
+              description(asHtml: false)
+              title {
+                romaji
+                english
+                native
+                userPreferred
+              }
+              coverImage {
+                large
+                medium
+              }
+              startDate {
+                year
+                month
+                day
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 function isAnimeScheduleCategory(category) {
   return ANILIST_SCHEDULE_CATEGORIES.has(String(category || "").trim());
 }
@@ -566,6 +626,27 @@ function getAniListPreferredTitle(media) {
   );
 }
 
+function decodeHtmlEntities(value) {
+  if (typeof document === "undefined") {
+    return String(value || "");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = String(value || "");
+  return textarea.value;
+}
+
+function cleanAniListDescription(value) {
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/p>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
 function normalizeScheduleTitle(value) {
   return normalizeText(value)
     .replace(/&/g, " and ")
@@ -605,6 +686,22 @@ function isLikelyAniListMatch(itemTitle, media) {
 
 function getAniListImage(media, fallbackImage = "") {
   return media?.coverImage?.large || media?.coverImage?.medium || fallbackImage || "";
+}
+
+function getAniListAirDate(media) {
+  const year = Number.parseInt(media?.startDate?.year, 10);
+  const month = Number.parseInt(media?.startDate?.month, 10);
+  const day = Number.parseInt(media?.startDate?.day, 10);
+
+  if (!year || !month || !day) {
+    return "";
+  }
+
+  return [
+    year,
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0")
+  ].join("-");
 }
 
 function getAniListAiringTimestamp(media) {
@@ -852,6 +949,143 @@ async function fetchAniListScheduleForItem(item) {
   };
 }
 
+function isSeasonLikeAniListMedia(media) {
+  if (media?.type !== "ANIME") {
+    return false;
+  }
+
+  const format = String(media?.format || "").toUpperCase();
+  const episodeCount = Number.parseInt(media?.episodes, 10);
+
+  return (
+    episodeCount > 0 &&
+    !["MOVIE", "MUSIC", "SPECIAL"].includes(format)
+  );
+}
+
+function getAniListSeasonSortValue(media) {
+  return (
+    getAniListDateTimestamp(media?.startDate) ||
+    Number.parseInt(media?.seasonYear, 10) * 10000 ||
+    Number.MAX_SAFE_INTEGER
+  );
+}
+
+function collectAniListSeasonMedia(item, mediaList) {
+  const seen = new Set();
+  const candidates = [];
+
+  const addCandidate = (media) => {
+    if (!isSeasonLikeAniListMedia(media)) {
+      return;
+    }
+
+    const key = String(media.id || getAniListPreferredTitle(media));
+
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    candidates.push(media);
+  };
+
+  mediaList.forEach((media) => {
+    if (isLikelyAniListMatch(item.title, media)) {
+      addCandidate(media);
+    }
+
+    const relations = Array.isArray(media?.relations?.edges)
+      ? media.relations.edges
+      : [];
+
+    relations.forEach((edge) => {
+      if (!["PREQUEL", "SEQUEL"].includes(edge?.relationType)) {
+        return;
+      }
+
+      addCandidate(edge?.node);
+    });
+  });
+
+  return candidates.sort((left, right) => {
+    return (
+      getAniListSeasonSortValue(left) - getAniListSeasonSortValue(right) ||
+      getAniListPreferredTitle(left).localeCompare(
+        getAniListPreferredTitle(right),
+        undefined,
+        { sensitivity: "base" }
+      )
+    );
+  });
+}
+
+function buildAniListSeasonList(item, mediaList) {
+  const seasonMedia = collectAniListSeasonMedia(item, mediaList);
+
+  return seasonMedia.map((media, index) => {
+    const seasonNumber = index + 1;
+    const fallbackName = `Season ${seasonNumber}`;
+    const name = getAniListPreferredTitle(media) || fallbackName;
+
+    return {
+      id: `anilist-${media.id || seasonNumber}`,
+      name,
+      seasonNumber,
+      episodeCount: Math.max(1, Number.parseInt(media?.episodes, 10) || 1),
+      airDate: getAniListAirDate(media),
+      overview: cleanAniListDescription(media?.description),
+      image: getAniListImage(media, item.image),
+      status: ""
+    };
+  });
+}
+
+async function fetchAniListDetailsForItem(item) {
+  const response = await fetch("https://graphql.anilist.co", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      query: ANILIST_DETAILS_QUERY,
+      variables: { search: item.title }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("AniList details request failed");
+  }
+
+  const data = await response.json();
+
+  if (Array.isArray(data.errors) && data.errors.length) {
+    throw new Error("AniList returned details errors");
+  }
+
+  const mediaResults = Array.isArray(data?.data?.Page?.media)
+    ? data.data.Page.media
+    : [];
+  const matchedMedia = mediaResults.filter((media) =>
+    isLikelyAniListMatch(item.title, media)
+  );
+  const mediaList = matchedMedia.length ? matchedMedia : mediaResults;
+  const primaryMedia = mediaList[0] || null;
+  const seasons = buildAniListSeasonList(item, mediaList);
+
+  return {
+    overview: cleanAniListDescription(primaryMedia?.description),
+    seasons,
+    number_of_seasons: seasons.length,
+    number_of_episodes: seasons.reduce(
+      (count, season) => count + season.episodeCount,
+      0
+    ),
+    poster_path: getAniListImage(primaryMedia, item.image)
+  };
+}
+
 function createTmdbEpisodeEntry(item, details) {
   const nextEpisode = details?.next_episode_to_air;
   const airDate = createLocalDateFromYmd(nextEpisode?.air_date);
@@ -1087,6 +1321,7 @@ function sanitizeTrackerList(items) {
               ),
         seasons: hydratedSeasons,
         overview: String(item.overview || "").trim(),
+        detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
         createdAt: String(item.createdAt || "").trim(),
         updatedAt: String(item.updatedAt || item.createdAt || "").trim(),
         lastProgressAt: String(
@@ -1115,6 +1350,9 @@ function createCloudSeasonPayload(season) {
     name: String(season?.name || label).trim() || label,
     seasonNumber,
     episodeCount,
+    airDate: String(season?.airDate ?? season?.air_date ?? "").trim(),
+    overview: String(season?.overview || "").trim().slice(0, 1200),
+    image: getTmdbImageUrl(season?.image || season?.poster_path || ""),
     status
   };
 }
@@ -1135,7 +1373,8 @@ function createCloudTrackerPayload(items) {
       item.mediaType === "movie"
         ? []
         : sanitizeSeasonList(item.seasons, "").map(createCloudSeasonPayload),
-    overview: String(item.overview || "").trim().slice(0, 280),
+    overview: String(item.overview || "").trim().slice(0, 1200),
+    detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     lastProgressAt: item.lastProgressAt
@@ -3792,6 +4031,8 @@ function renderSeasonCard(title, season, seriesOverview = "") {
   const displayName = getSeasonDisplayName(season);
   const hasCustomName = normalizeText(displayName) !== normalizeText(label);
   const year = season.airDate ? season.airDate.slice(0, 4) : "TBA";
+  const episodeLabel =
+    season.episodeCount > 0 ? `${season.episodeCount} episodes` : "Episodes TBA";
   const overview =
     season.overview ||
     String(seriesOverview || "").trim() ||
@@ -3805,7 +4046,7 @@ function renderSeasonCard(title, season, seriesOverview = "") {
         <div class="season-header-row">
           <div class="season-title-block">
             <h3>${escapeHtml(displayName)}</h3>
-            <p class="season-meta">${season.episodeCount} episodes | ${escapeHtml(year)}</p>
+            <p class="season-meta">${escapeHtml(episodeLabel)} | ${escapeHtml(year)}</p>
           </div>
           ${renderSeasonEditButton(title, season)}
         </div>
@@ -3836,6 +4077,85 @@ function buildSeasonsSummary(item, seasonTotal, seasons = []) {
   return detailParts.join(" | ");
 }
 
+function getDetailsScore(seasons = []) {
+  return seasons.reduce((score, season) => {
+    return (
+      score +
+      100 +
+      (season.overview ? 18 : 0) +
+      (season.airDate ? 10 : 0) +
+      (season.image ? 4 : 0)
+    );
+  }, 0);
+}
+
+function pickRicherSeasonList(...seasonLists) {
+  return seasonLists
+    .filter((seasons) => Array.isArray(seasons) && seasons.length)
+    .sort((left, right) => {
+      return (
+        getDetailsScore(right) - getDetailsScore(left) ||
+        right.length - left.length
+      );
+    })[0] || [];
+}
+
+function preserveSeasonStatuses(nextSeasons, existingSeasons) {
+  const byNumber = new Map();
+  const byName = new Map();
+
+  existingSeasons.forEach((season) => {
+    if (!season.status) {
+      return;
+    }
+
+    byNumber.set(Number.parseInt(season.seasonNumber, 10), season.status);
+    byName.set(normalizeText(season.name), season.status);
+  });
+
+  return nextSeasons.map((season) => {
+    const status =
+      byNumber.get(Number.parseInt(season.seasonNumber, 10)) ||
+      byName.get(normalizeText(season.name)) ||
+      season.status ||
+      "";
+
+    return {
+      ...season,
+      status
+    };
+  });
+}
+
+function shouldRefreshSeasonDetails(item, existingSeasons) {
+  if (!item || item.mediaType !== "tv") {
+    return false;
+  }
+
+  const expectedSeasonCount = Math.max(
+    0,
+    Number.parseInt(item.seasonCount, 10) || 0
+  );
+
+  if (!existingSeasons.length) {
+    return true;
+  }
+
+  if (!item.detailsHydratedAt && existingSeasons.length <= 1) {
+    return true;
+  }
+
+  if (expectedSeasonCount > existingSeasons.length) {
+    return true;
+  }
+
+  if (!String(item.overview || "").trim()) {
+    return true;
+  }
+
+  return existingSeasons.some((season) => !season.overview && !season.airDate);
+}
+
 async function ensureSeasonData(item) {
   if (!item || item.mediaType !== "tv") {
     return [];
@@ -3844,30 +4164,69 @@ async function ensureSeasonData(item) {
   const existingSeasons = sanitizeSeasonList(item.seasons, item.image);
   item.overview = String(item.overview || "").trim();
 
-  if (existingSeasons.length && item.overview) {
+  if (!shouldRefreshSeasonDetails(item, existingSeasons)) {
     item.seasons = existingSeasons;
     item.seasonCount = Math.max(getSeasonCount(item), existingSeasons.length);
     return existingSeasons;
   }
 
-  if (!item.id) {
+  const shouldFetchAniList = isAnimeScheduleCategory(item.category);
+
+  if (!item.id && !shouldFetchAniList) {
     item.seasons = existingSeasons;
     item.seasonCount = Math.max(getSeasonCount(item), existingSeasons.length);
     return existingSeasons;
   }
 
-  const details = await fetchTitleDetails(item.id, item.mediaType);
-  const fallbackImage = item.image || getTmdbImageUrl(details.poster_path);
-  const fetchedSeasons = sanitizeSeasonList(details.seasons, fallbackImage);
-  const seasons = fetchedSeasons.length ? fetchedSeasons : existingSeasons;
+  const [tmdbResult, aniListResult] = await Promise.allSettled([
+    item.id ? fetchTitleDetails(item.id, item.mediaType) : Promise.resolve(null),
+    shouldFetchAniList ? fetchAniListDetailsForItem(item) : Promise.resolve(null)
+  ]);
+  const details = tmdbResult.status === "fulfilled" ? tmdbResult.value : null;
+  const aniListDetails =
+    aniListResult.status === "fulfilled" ? aniListResult.value : null;
+  const fallbackImage =
+    item.image ||
+    getTmdbImageUrl(details?.poster_path) ||
+    getTmdbImageUrl(aniListDetails?.poster_path);
+  const tmdbSeasons = sanitizeSeasonList(details?.seasons, fallbackImage);
+  const aniListSeasons = sanitizeSeasonList(aniListDetails?.seasons, fallbackImage);
+  const fetchedSeasons = pickRicherSeasonList(aniListSeasons, tmdbSeasons);
+  const seasons = preserveSeasonStatuses(
+    fetchedSeasons.length ? fetchedSeasons : existingSeasons,
+    existingSeasons
+  );
+  const fetchedOverview = [
+    item.overview,
+    details?.overview,
+    aniListDetails?.overview
+  ]
+    .map((overview) => String(overview || "").trim())
+    .sort((left, right) => right.length - left.length)[0] || "";
+  const totalEpisodesFromSeasons = seasons.reduce(
+    (count, season) => count + season.episodeCount,
+    0
+  );
 
   item.image = fallbackImage;
-  item.overview = String(item.overview || details.overview || "").trim();
+  item.overview = fetchedOverview;
   item.seasons = seasons;
   item.seasonCount = Math.max(
     seasons.length,
-    Number.parseInt(details.number_of_seasons, 10) || 0
+    Number.parseInt(details?.number_of_seasons, 10) || 0,
+    Number.parseInt(aniListDetails?.number_of_seasons, 10) || 0
   );
+  item.total = Math.max(
+    Number.parseInt(item.total, 10) || 0,
+    Number.parseInt(details?.number_of_episodes, 10) || 0,
+    Number.parseInt(aniListDetails?.number_of_episodes, 10) || 0,
+    totalEpisodesFromSeasons,
+    1
+  );
+
+  if (details || aniListDetails) {
+    item.detailsHydratedAt = createTrackerTimestamp();
+  }
 
   void queueTrackerSync();
 
