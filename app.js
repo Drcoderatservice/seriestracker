@@ -47,6 +47,65 @@ const AIRING_NOTIFICATION_CHECK_MS = 60 * 1000;
 const AIRING_NOTIFICATION_REFRESH_MS = 2 * 60 * 60 * 1000;
 const SHARE_HASH_KEY = "share";
 const SHARE_COLLECTION = "sharedLists";
+const KNOWN_DONGHUA_SEASON_OVERRIDES = [
+  {
+    aliases: [
+      "apotheosis",
+      "bai lian cheng shen",
+      "become a god",
+      "百炼成神"
+    ],
+    seasons: [
+      {
+        name: "Season 1",
+        seasonNumber: 1,
+        episodeCount: 52,
+        airDate: "2022"
+      },
+      {
+        name: "Season 2",
+        seasonNumber: 2,
+        episodeCount: 52,
+        airDate: "2024"
+      },
+      {
+        name: "Season 3",
+        seasonNumber: 3,
+        episodeCount: 52,
+        airDate: "2025"
+      }
+    ]
+  },
+  {
+    aliases: [
+      "the demon hunter",
+      "cang yuan tu",
+      "cangyuan chronicles",
+      "azure legacy",
+      "沧元图"
+    ],
+    seasons: [
+      {
+        name: "Season 1",
+        seasonNumber: 1,
+        episodeCount: 26,
+        airDate: "2023-06-22"
+      },
+      {
+        name: "Season 2",
+        seasonNumber: 2,
+        episodeCount: 36,
+        airDate: "2024-12-06"
+      },
+      {
+        name: "Season 3",
+        seasonNumber: 3,
+        episodeCount: 22,
+        airDate: "2026-03-13"
+      }
+    ]
+  }
+];
 
 let currentUser = null;
 let currentUsername = "";
@@ -272,6 +331,40 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function getKnownDonghuaSeasonOverride(item) {
+  if (!item || item.category !== "Donghua") {
+    return null;
+  }
+
+  const title = normalizeText(item.title);
+
+  return KNOWN_DONGHUA_SEASON_OVERRIDES.find((override) =>
+    override.aliases.some((alias) => {
+      const normalizedAlias = normalizeText(alias);
+      return title === normalizedAlias || title.includes(normalizedAlias);
+    })
+  ) || null;
+}
+
+function buildKnownDonghuaSeasons(item, fallbackImage = item?.image || "") {
+  const override = getKnownDonghuaSeasonOverride(item);
+
+  if (!override) {
+    return [];
+  }
+
+  return override.seasons.map((season) => ({
+    id: `donghua-${normalizeText(item.title).replace(/[^a-z0-9]+/g, "-")}-${season.seasonNumber}`,
+    name: season.name,
+    seasonNumber: season.seasonNumber,
+    episodeCount: season.episodeCount,
+    airDate: season.airDate || "",
+    overview: "",
+    image: fallbackImage,
+    status: ""
+  }));
 }
 
 function sanitizeSeasonList(seasons, fallbackImage = "") {
@@ -4141,6 +4234,12 @@ function shouldRefreshSeasonDetails(item, existingSeasons) {
     return true;
   }
 
+  const knownOverride = getKnownDonghuaSeasonOverride(item);
+
+  if (knownOverride && existingSeasons.length < knownOverride.seasons.length) {
+    return true;
+  }
+
   if (!item.detailsHydratedAt && existingSeasons.length <= 1) {
     return true;
   }
@@ -4189,9 +4288,17 @@ async function ensureSeasonData(item) {
     item.image ||
     getTmdbImageUrl(details?.poster_path) ||
     getTmdbImageUrl(aniListDetails?.poster_path);
+  const knownDonghuaSeasons = sanitizeSeasonList(
+    buildKnownDonghuaSeasons(item, fallbackImage),
+    fallbackImage
+  );
   const tmdbSeasons = sanitizeSeasonList(details?.seasons, fallbackImage);
   const aniListSeasons = sanitizeSeasonList(aniListDetails?.seasons, fallbackImage);
-  const fetchedSeasons = pickRicherSeasonList(aniListSeasons, tmdbSeasons);
+  const fetchedSeasons = pickRicherSeasonList(
+    knownDonghuaSeasons,
+    aniListSeasons,
+    tmdbSeasons
+  );
   const seasons = preserveSeasonStatuses(
     fetchedSeasons.length ? fetchedSeasons : existingSeasons,
     existingSeasons
