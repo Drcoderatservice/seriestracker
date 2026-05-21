@@ -191,6 +191,16 @@
         Airing
       </button>
 
+      <button
+        type="button"
+        id="syncLibraryButton"
+        onclick="syncLibraryDetails()"
+        class="sync-library-btn"
+        title="Sync all added titles with latest details"
+      >
+        Sync Details
+      </button>
+
       <div class="profile-menu">
         <button
           type="button"
@@ -679,6 +689,21 @@
           <button
             type="button"
             class="theme-option"
+            data-theme-option="midnight-violet"
+            onclick="setTheme('midnight-violet')"
+          >
+            <span class="theme-preview theme-preview-violet" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="theme-option-copy">
+              <strong>Midnight Violet</strong>
+              <small>Deep violet focus</small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            class="theme-option"
             data-theme-option="netflix-red"
             onclick="setTheme('netflix-red')"
           >
@@ -933,7 +958,8 @@
       query,
       where,
       limit,
-      deleteDoc
+      deleteDoc,
+      deleteField
     } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -960,6 +986,7 @@
     window.where = where;
     window.limit = limit;
     window.deleteDoc = deleteDoc;
+    window.deleteField = deleteField;
     window.onAuthStateChanged = onAuthStateChanged;
     window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
     window.signInWithEmailAndPassword = signInWithEmailAndPassword;

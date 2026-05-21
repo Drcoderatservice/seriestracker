@@ -33,11 +33,11 @@ const AIRING_CATEGORY_FILTER_OPTIONS = new Set([
 ]);
 const SORT_OPTIONS = new Set(["Newest", "Oldest", "AZ", "ZA"]);
 const DEFAULT_VIEW_CATEGORY_OPTIONS = new Set(["Home", ...CATEGORY_OPTIONS]);
-const THEME_OPTIONS = new Set(["default", "netflix-red", "ocean-night"]);
+const THEME_OPTIONS = new Set(["default", "midnight-violet", "netflix-red", "ocean-night"]);
 const DEFAULT_THEME = "default";
 const THEME_STORAGE_KEY = "seriestracker_theme";
 const THEME_STORAGE_VERSION_KEY = "seriestracker_theme_version";
-const THEME_STORAGE_VERSION = "purple-default-2026-05-06";
+const THEME_STORAGE_VERSION = "theme-options-2026-05-16";
 const DEFAULT_CATEGORY_STORAGE_KEY = "seriestracker_default_category";
 const DEFAULT_SORT_STORAGE_KEY = "seriestracker_default_sort";
 const AIRING_NOTIFICATION_ENABLED_KEY = "seriestracker_airing_notifications_enabled";
@@ -155,6 +155,13 @@ let airingScheduleState = {
   seasons: [],
   updatedAt: ""
 };
+let librarySyncState = {
+  isSyncing: false,
+  total: 0,
+  completed: 0,
+  updated: 0,
+  failed: 0
+};
 
 function delay(ms) {
   return new Promise((resolve) => {
@@ -175,6 +182,7 @@ function getFirebaseApi() {
     where: window.where,
     limit: window.limit,
     deleteDoc: window.deleteDoc,
+    deleteField: window.deleteField,
     signOut: window.signOut,
     signInWithEmailAndPassword: window.signInWithEmailAndPassword,
     createUserWithEmailAndPassword: window.createUserWithEmailAndPassword,
@@ -190,8 +198,11 @@ function isFirebaseReady() {
     api.auth &&
       api.db &&
       api.doc &&
+      api.collection &&
       api.setDoc &&
       api.getDoc &&
+      api.getDocs &&
+      api.deleteDoc &&
       api.signOut &&
       api.signInWithEmailAndPassword &&
       api.createUserWithEmailAndPassword &&
@@ -223,6 +234,16 @@ function getProfileStorageKey(email = getUserEmail()) {
 function getUserDocRef(uid) {
   const { db, doc } = getFirebaseApi();
   return doc(db, "users", uid);
+}
+
+function getUserTrackerCollectionRef(uid) {
+  const { db, collection } = getFirebaseApi();
+  return collection(db, "users", uid, "trackerItems");
+}
+
+function getUserTrackerItemDocRef(uid, itemId) {
+  const { db, doc } = getFirebaseApi();
+  return doc(db, "users", uid, "trackerItems", itemId);
 }
 
 function getUsernameDocRef(usernameKey) {
@@ -1482,7 +1503,8 @@ function sanitizeTrackerList(items) {
     });
 }
 
-function createCloudSeasonPayload(season) {
+function createCloudSeasonPayload(season, options = {}) {
+  const { compact = false, parentImage = "" } = options;
   const seasonNumber = Math.max(
     0,
     Number.parseInt(season?.seasonNumber ?? season?.season_number, 10) || 0
@@ -1495,6 +1517,35 @@ function createCloudSeasonPayload(season) {
   const status = SEASON_STATUS_OPTIONS.has(String(season?.status || "").trim())
     ? String(season.status).trim()
     : "";
+  const overviewLimit = compact === "lean" ? 0 : compact ? 300 : 1200;
+  const overview = String(season?.overview || "").trim().slice(0, overviewLimit);
+  const image = getTmdbImageUrl(season?.image || season?.poster_path || "");
+
+  if (compact) {
+    const payload = {
+      id: season?.id ?? `${seasonNumber}-${label}`,
+      name: String(season?.name || label).trim() || label,
+      seasonNumber,
+      episodeCount,
+      status
+    };
+
+    const airDate = String(season?.airDate ?? season?.air_date ?? "").trim();
+
+    if (airDate) {
+      payload.airDate = airDate;
+    }
+
+    if (overview) {
+      payload.overview = overview;
+    }
+
+    if (image && image !== parentImage && compact !== "lean") {
+      payload.image = image;
+    }
+
+    return payload;
+  }
 
   return {
     id: season?.id ?? `${seasonNumber}-${label}`,
@@ -1502,34 +1553,120 @@ function createCloudSeasonPayload(season) {
     seasonNumber,
     episodeCount,
     airDate: String(season?.airDate ?? season?.air_date ?? "").trim(),
-    overview: String(season?.overview || "").trim().slice(0, 1200),
-    image: getTmdbImageUrl(season?.image || season?.poster_path || ""),
+    overview,
+    image,
     status
   };
 }
 
-function createCloudTrackerPayload(items) {
-  return sanitizeTrackerList(items).map((item) => ({
-    id: item.id ?? null,
-    title: item.title,
-    image: item.image,
-    isFavorite: Boolean(item.isFavorite),
-    watched: item.watched,
-    total: item.total,
-    status: item.status,
-    category: item.category,
-    mediaType: item.mediaType,
-    seasonCount: getSeasonCount(item),
-    seasons:
+function createCloudTrackerPayload(items, options = {}) {
+  const { compact = false } = options;
+
+  return sanitizeTrackerList(items).map((item) => {
+    const deletedSeasonIds = normalizeDeletedSeasonIds(item.deletedSeasonIds);
+    const overviewLimit = compact === "lean" ? 0 : compact ? 500 : 1200;
+    const overview = String(item.overview || "").trim().slice(0, overviewLimit);
+    const seasons =
       item.mediaType === "movie"
         ? []
-        : sanitizeSeasonList(item.seasons, "").map(createCloudSeasonPayload),
-    deletedSeasonIds: normalizeDeletedSeasonIds(item.deletedSeasonIds),
-    overview: String(item.overview || "").trim().slice(0, 1200),
-    detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-    lastProgressAt: item.lastProgressAt
+        : sanitizeSeasonList(item.seasons, "").map((season) =>
+            createCloudSeasonPayload(season, {
+              compact,
+              parentImage: item.image
+            })
+          );
+
+    if (!compact) {
+      return {
+        id: item.id ?? null,
+        title: item.title,
+        image: item.image,
+        isFavorite: Boolean(item.isFavorite),
+        watched: item.watched,
+        total: item.total,
+        status: item.status,
+        category: item.category,
+        mediaType: item.mediaType,
+        seasonCount: getSeasonCount(item),
+        seasons,
+        deletedSeasonIds,
+        overview,
+        detailsHydratedAt: String(item.detailsHydratedAt || "").trim(),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        lastProgressAt: item.lastProgressAt
+      };
+    }
+
+    const payload = {
+      id: item.id ?? null,
+      title: item.title,
+      isFavorite: Boolean(item.isFavorite),
+      watched: item.watched,
+      total: item.total,
+      status: item.status,
+      category: item.category,
+      mediaType: item.mediaType,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      lastProgressAt: item.lastProgressAt
+    };
+
+    if (item.image) {
+      payload.image = item.image;
+    }
+
+    if (item.mediaType !== "movie") {
+      payload.seasonCount = getSeasonCount(item);
+      payload.seasons = seasons;
+    }
+
+    if (deletedSeasonIds.length) {
+      payload.deletedSeasonIds = deletedSeasonIds;
+    }
+
+    if (overview) {
+      payload.overview = overview;
+    }
+
+    if (item.detailsHydratedAt) {
+      payload.detailsHydratedAt = String(item.detailsHydratedAt).trim();
+    }
+
+    return payload;
+  });
+}
+
+function createTrackerItemDocumentId(item, index = 0) {
+  const seed = [
+    item?.createdAt,
+    item?.id,
+    item?.category,
+    item?.mediaType,
+    item?.title,
+    index
+  ].map((value) => String(value || "").trim()).join("|") || `item-${index}`;
+  const slug = normalizeText(item?.title || `item-${index}`)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || `item-${index}`;
+  let hash = 0;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (Math.imul(31, hash) + seed.charCodeAt(index)) | 0;
+  }
+
+  return `${slug}-${Math.abs(hash).toString(36)}`;
+}
+
+function createCloudTrackerItemDocuments(items) {
+  return createCloudTrackerPayload(items).map((item, index) => ({
+    id: createTrackerItemDocumentId(item, index),
+    data: {
+      ...item,
+      cloudOrder: index,
+      cloudUpdatedAt: new Date().toISOString()
+    }
   }));
 }
 
@@ -1568,10 +1705,38 @@ function readLegacyTracker(email) {
 }
 
 async function writeTrackerToCloud(user, trackerPayload, options = {}) {
-  const { setDoc } = getFirebaseApi();
+  const { deleteDoc, deleteField, getDocs, setDoc } = getFirebaseApi();
+  const itemDocuments = createCloudTrackerItemDocuments(trackerPayload);
+
+  try {
+    const existingSnapshot = await getDocs(getUserTrackerCollectionRef(user.uid));
+    const nextIds = new Set(itemDocuments.map((entry) => entry.id));
+    const deletePromises = existingSnapshot.docs
+      .filter((documentSnapshot) => !nextIds.has(documentSnapshot.id))
+      .map((documentSnapshot) => deleteDoc(documentSnapshot.ref));
+    const writePromises = itemDocuments.map((entry) =>
+      setDoc(getUserTrackerItemDocRef(user.uid, entry.id), entry.data)
+    );
+    const results = await Promise.allSettled([...deletePromises, ...writePromises]);
+    const failedResult = results.find((result) => result.status === "rejected");
+
+    if (failedResult) {
+      throw failedResult.reason || new Error("Cloud item sync failed");
+    }
+  } catch (error) {
+    if (!isPermissionDeniedError(error)) {
+      throw error;
+    }
+
+    await writeLegacyTrackerDocumentToCloud(user, trackerPayload, options);
+    return;
+  }
+
   const payload = {
     email: user.email || "",
-    tracker: createCloudTrackerPayload(trackerPayload),
+    tracker: deleteField ? deleteField() : [],
+    trackerStorageVersion: 2,
+    trackerCount: itemDocuments.length,
     updatedAt: new Date().toISOString()
   };
 
@@ -1580,6 +1745,58 @@ async function writeTrackerToCloud(user, trackerPayload, options = {}) {
   }
 
   await setDoc(getUserDocRef(user.uid), payload, { merge: true });
+}
+
+async function writeLegacyTrackerDocumentToCloud(user, trackerPayload, options = {}) {
+  const { setDoc } = getFirebaseApi();
+  const payload = {
+    email: user.email || "",
+    tracker: createCloudTrackerPayload(trackerPayload, { compact: true }),
+    trackerStorageVersion: 1,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (options.migratedFromLocal) {
+    payload.migratedFromLocal = true;
+  }
+
+  try {
+    await setDoc(getUserDocRef(user.uid), payload, { merge: true });
+  } catch (error) {
+    if (!isCloudDocumentSizeError(error)) {
+      throw error;
+    }
+
+    await setDoc(
+      getUserDocRef(user.uid),
+      {
+        ...payload,
+        tracker: createCloudTrackerPayload(trackerPayload, { compact: "lean" })
+      },
+      { merge: true }
+    );
+  }
+}
+
+function isPermissionDeniedError(error) {
+  return String(error?.code || "").toLowerCase() === "permission-denied";
+}
+
+function isCloudDocumentSizeError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    code === "resource-exhausted" ||
+    (
+      code === "invalid-argument" &&
+      (
+        message.includes("too large") ||
+        message.includes("maximum") ||
+        message.includes("size")
+      )
+    )
+  );
 }
 
 async function syncProfileAvatarToCloud(user, avatarData) {
@@ -1742,13 +1959,33 @@ async function resolveIdentifierToEmail(identifier) {
 }
 
 async function fetchRemoteUserData(user) {
-  const { getDoc } = getFirebaseApi();
+  const { getDoc, getDocs } = getFirebaseApi();
   const snapshot = await getDoc(getUserDocRef(user.uid));
+  let trackerItems = [];
+
+  try {
+    const trackerSnapshot = await getDocs(getUserTrackerCollectionRef(user.uid));
+    trackerItems = trackerSnapshot.docs
+      .map((documentSnapshot) => {
+        const data = documentSnapshot.data() || {};
+        return {
+          ...data,
+          cloudOrder: Number.parseInt(data.cloudOrder, 10) || 0
+        };
+      })
+      .sort((left, right) => left.cloudOrder - right.cloudOrder)
+      .map((item) => {
+        const { cloudOrder, cloudUpdatedAt, ...trackerItem } = item;
+        return trackerItem;
+      });
+  } catch (error) {
+    trackerItems = [];
+  }
 
   if (!snapshot.exists()) {
     return {
-      exists: false,
-      tracker: [],
+      exists: trackerItems.length > 0,
+      tracker: sanitizeTrackerList(trackerItems),
       profileAvatar: "",
       username: ""
     };
@@ -1758,7 +1995,9 @@ async function fetchRemoteUserData(user) {
 
   return {
     exists: true,
-    tracker: sanitizeTrackerList(data.tracker),
+    tracker: sanitizeTrackerList(
+      trackerItems.length ? trackerItems : data.tracker
+    ),
     profileAvatar: String(data.profileAvatar || ""),
     username: normalizeUsernameValue(data.username || "")
   };
@@ -1823,11 +2062,13 @@ async function loadUserDataForUser(user) {
 }
 
 function getCloudSaveErrorMessage(error, savedLocally = false) {
+  if (isCloudDocumentSizeError(error)) {
+    return savedLocally
+      ? "Cloud document was too large, but your changes are safe locally on this device."
+      : "Cloud document was too large. Please try again.";
+  }
+
   switch (error?.code) {
-    case "resource-exhausted":
-      return savedLocally
-        ? "Cloud document was too large, but your changes are safe locally on this device."
-        : "Cloud document was too large. Please try again.";
     case "permission-denied":
       return savedLocally
         ? "Cloud write was blocked, but your changes are safe locally on this device."
@@ -4359,7 +4600,9 @@ function shouldRefreshSeasonDetails(item, existingSeasons) {
   return existingSeasons.some((season) => !season.overview && !season.airDate);
 }
 
-async function ensureSeasonData(item) {
+async function ensureSeasonData(item, options = {}) {
+  const { force = false, persist = true, requireSource = false } = options;
+
   if (!item || item.mediaType !== "tv") {
     return [];
   }
@@ -4370,7 +4613,7 @@ async function ensureSeasonData(item) {
   );
   item.overview = String(item.overview || "").trim();
 
-  if (!shouldRefreshSeasonDetails(item, existingSeasons)) {
+  if (!force && !shouldRefreshSeasonDetails(item, existingSeasons)) {
     item.seasons = existingSeasons;
     item.seasonCount = getSeasonCount(item);
     return existingSeasons;
@@ -4392,6 +4635,17 @@ async function ensureSeasonData(item) {
   const details = tmdbResult.status === "fulfilled" ? tmdbResult.value : null;
   const aniListDetails =
     aniListResult.status === "fulfilled" ? aniListResult.value : null;
+
+  if (
+    requireSource &&
+    !knownOverride &&
+    !details &&
+    !aniListDetails &&
+    (item.id || shouldFetchAniList)
+  ) {
+    throw new Error("No latest details source available");
+  }
+
   const fallbackImage =
     item.image ||
     getTmdbImageUrl(details?.poster_path) ||
@@ -4459,9 +4713,195 @@ async function ensureSeasonData(item) {
     item.detailsHydratedAt = createTrackerTimestamp();
   }
 
-  void queueTrackerSync();
+  if (persist) {
+    void queueTrackerSync();
+  }
 
   return seasons;
+}
+
+function getSyncableTrackerItems() {
+  return tracker.filter((item) => item && (item.mediaType === "tv" || item.mediaType === "movie"));
+}
+
+function getTitleSyncSnapshot(item) {
+  const seasons =
+    item?.mediaType === "tv"
+      ? sanitizeSeasonList(item.seasons, item.image).map((season) => ({
+          id: normalizeSeasonId(season.id),
+          name: season.name,
+          seasonNumber: season.seasonNumber,
+          episodeCount: season.episodeCount,
+          airDate: season.airDate,
+          overview: season.overview,
+          image: season.image,
+          status: season.status
+        }))
+      : [];
+
+  return JSON.stringify({
+    image: String(item?.image || "").trim(),
+    overview: String(item?.overview || "").trim(),
+    watched: Math.max(0, Number.parseInt(item?.watched, 10) || 0),
+    total: Math.max(0, Number.parseInt(item?.total, 10) || 0),
+    status: String(item?.status || "").trim(),
+    seasonCount: Math.max(0, Number.parseInt(item?.seasonCount, 10) || 0),
+    seasons
+  });
+}
+
+function getBestTextValue(...values) {
+  return values
+    .map((value) => String(value || "").trim())
+    .sort((left, right) => right.length - left.length)[0] || "";
+}
+
+async function syncMovieDetails(item) {
+  if (!item?.id) {
+    return;
+  }
+
+  const details = await fetchTitleDetails(item.id, "movie");
+
+  item.image = getTmdbImageUrl(details?.poster_path) || item.image;
+  item.overview = getBestTextValue(item.overview, details?.overview);
+  item.mediaType = "movie";
+  item.seasonCount = 0;
+  item.total = 1;
+  item.watched = Math.min(1, Math.max(0, Number.parseInt(item.watched, 10) || 0));
+  updateStatus(item);
+  item.detailsHydratedAt = createTrackerTimestamp();
+}
+
+async function syncTrackerItemDetails(item) {
+  const before = getTitleSyncSnapshot(item);
+  const previousTotal = Math.max(0, Number.parseInt(item?.total, 10) || 0);
+  const previousStatus = String(item?.status || "").trim();
+
+  if (item.mediaType === "movie") {
+    await syncMovieDetails(item);
+  } else {
+    await ensureSeasonData(item, { force: true, persist: false, requireSource: true });
+    const nextTotal = Math.max(0, Number.parseInt(item?.total, 10) || 0);
+
+    if (
+      nextTotal > previousTotal &&
+      previousStatus === "Completed" &&
+      (Number.parseInt(item.watched, 10) || 0) <= previousTotal
+    ) {
+      item.status = item.watched > 0 ? "Watching" : "Planned";
+      item.seasons = sanitizeSeasonList(item.seasons, item.image).map((season) => ({
+        ...season,
+        status: ""
+      }));
+    }
+
+    updateStatus(item);
+    normalizeSeasonState(item);
+  }
+
+  return getTitleSyncSnapshot(item) !== before;
+}
+
+function syncLibraryButtonState() {
+  const button = document.getElementById("syncLibraryButton");
+
+  if (!button) {
+    return;
+  }
+
+  const syncableCount = getSyncableTrackerItems().length;
+  const isSyncing = librarySyncState.isSyncing;
+
+  button.disabled = !currentUser || !syncableCount || isSyncing;
+  button.classList.toggle("is-syncing", isSyncing);
+
+  if (isSyncing) {
+    button.textContent = `Syncing ${librarySyncState.completed}/${librarySyncState.total}`;
+    button.title = "Sync is running";
+  } else {
+    button.textContent = "Sync Details";
+    button.title = syncableCount
+      ? "Sync all added titles with latest details"
+      : "Add a title before syncing";
+  }
+}
+
+async function syncLibraryDetails() {
+  if (!currentUser) {
+    openLogin();
+    showWarning("Log in first to sync your tracker.");
+    return;
+  }
+
+  if (librarySyncState.isSyncing) {
+    return;
+  }
+
+  const syncItems = getSyncableTrackerItems();
+
+  if (!syncItems.length) {
+    showWarning("Add a title first, then sync details.");
+    return;
+  }
+
+  librarySyncState = {
+    isSyncing: true,
+    total: syncItems.length,
+    completed: 0,
+    updated: 0,
+    failed: 0
+  };
+  syncLibraryButtonState();
+  showToast(`Syncing ${syncItems.length} added title${syncItems.length === 1 ? "" : "s"}...`, "info");
+
+  for (const item of syncItems) {
+    try {
+      const didUpdate = await syncTrackerItemDetails(item);
+
+      if (didUpdate) {
+        librarySyncState.updated += 1;
+      }
+    } catch (error) {
+      librarySyncState.failed += 1;
+    }
+
+    librarySyncState.completed += 1;
+    syncLibraryButtonState();
+
+    if (librarySyncState.completed < librarySyncState.total) {
+      await delay(120);
+    }
+  }
+
+  const { updated, failed, total } = librarySyncState;
+  librarySyncState = {
+    isSyncing: false,
+    total: 0,
+    completed: 0,
+    updated: 0,
+    failed: 0
+  };
+
+  if (updated) {
+    airingPreviewScheduleSignature = "";
+    render();
+    void queueTrackerSync();
+  } else {
+    syncLibraryButtonState();
+  }
+
+  if (updated && failed) {
+    showWarning(`${updated} title${updated === 1 ? "" : "s"} updated. ${failed} could not be checked.`);
+  } else if (updated) {
+    showSuccess(`${updated} title${updated === 1 ? "" : "s"} updated with latest details.`);
+  } else if (failed === total) {
+    showError("Could not sync details right now. Please try again later.");
+  } else if (failed) {
+    showWarning(`Sync finished, but ${failed} title${failed === 1 ? "" : "s"} could not be checked.`);
+  } else {
+    showSuccess("Everything is already up to date.");
+  }
 }
 
 function closeSeasonsModal() {
@@ -5323,6 +5763,7 @@ function updateAuthVisibility() {
 function render() {
   updateAuthVisibility();
   syncLibraryFilters();
+  syncLibraryButtonState();
   const sharePanel = document.getElementById("shareInlinePanel");
   const syncOpenSharePanel = () => {
     if (sharePanel && !sharePanel.classList.contains("hidden")) {
@@ -6434,6 +6875,7 @@ window.closeSeasonEditModal = closeSeasonEditModal;
 window.openAiringModal = openAiringModal;
 window.closeAiringModal = closeAiringModal;
 window.refreshAiringSchedule = refreshAiringSchedule;
+window.syncLibraryDetails = syncLibraryDetails;
 window.toggleAiringNotifications = toggleAiringNotifications;
 window.confirmDelete = confirmDelete;
 window.triggerProfileUpload = triggerProfileUpload;

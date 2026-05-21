@@ -166,7 +166,8 @@ nav button:focus-visible {
 
 body:not(.is-authenticated) #searchInput,
 body:not(.is-authenticated) .add-series-btn,
-body:not(.is-authenticated) .airing-open-btn {
+body:not(.is-authenticated) .airing-open-btn,
+body:not(.is-authenticated) .sync-library-btn {
   display: none;
 }
 
@@ -231,6 +232,24 @@ body:not(.is-authenticated) .airing-open-btn {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 14px 28px rgba(12, 1, 20, 0.22);
+}
+
+.sync-library-btn {
+  min-width: 118px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    linear-gradient(135deg, rgba(var(--warning-rgb), 0.28), rgba(var(--accent-rgb), 0.22));
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 14px 28px rgba(12, 1, 20, 0.22);
+}
+
+.sync-library-btn:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+  transform: none !important;
 }
 
 .share-list-btn {
@@ -2961,6 +2980,18 @@ section h2 {
   background: #b678ff;
 }
 
+.theme-preview-violet span:nth-child(1) {
+  background: #8b7cf6;
+}
+
+.theme-preview-violet span:nth-child(2) {
+  background: #17142f;
+}
+
+.theme-preview-violet span:nth-child(3) {
+  background: #f4b03f;
+}
+
 .theme-preview-netflix span:nth-child(1) {
   background: #e50914;
 }
@@ -3297,11 +3328,37 @@ body[data-theme="ocean-night"] {
     linear-gradient(180deg, rgba(5, 18, 26, 0.62), rgba(3, 11, 17, 0.96));
 }
 
+body[data-theme="midnight-violet"] {
+  --bg: #0f0d22;
+  --surface: rgba(22, 18, 43, 0.88);
+  --surface-strong: rgba(24, 20, 47, 0.96);
+  --surface-soft: rgba(45, 39, 86, 0.88);
+  --text: #f8f7ff;
+  --muted: #b8b2cf;
+  --accent: #8b7cf6;
+  --accent-rgb: 139, 124, 246;
+  --accent-soft: rgba(139, 124, 246, 0.22);
+  --success: #9d8cff;
+  --warning: #a78bfa;
+  --warning-rgb: 167, 139, 250;
+  --danger: #fb7185;
+  --danger-rgb: 251, 113, 133;
+  --border: rgba(139, 124, 246, 0.22);
+  --shadow: 0 18px 42px rgba(4, 3, 18, 0.38);
+  --page-glow:
+    linear-gradient(90deg, rgba(64, 54, 105, 0.5) 0%, rgba(25, 21, 48, 0.24) 24%, rgba(12, 11, 28, 0) 62%),
+    linear-gradient(180deg, rgba(17, 15, 36, 0.98), rgba(10, 9, 24, 0.98));
+}
+
 body[data-theme="netflix-red"]::before {
   background: var(--page-glow);
 }
 
 body[data-theme="ocean-night"]::before {
+  background: var(--page-glow);
+}
+
+body[data-theme="midnight-violet"]::before {
   background: var(--page-glow);
 }
 
@@ -3445,6 +3502,110 @@ body[data-theme="ocean-night"] .input-shell {
 
 body[data-theme="ocean-night"] .login-helper-link {
   color: rgba(232, 251, 255, 0.8);
+}
+
+body[data-theme="midnight-violet"] header {
+  background: rgba(15, 13, 31, 0.94);
+  border-bottom-color: rgba(139, 124, 246, 0.16);
+}
+
+body[data-theme="midnight-violet"] nav button:focus-visible {
+  border-color: rgba(139, 124, 246, 0.56);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 0 3px rgba(var(--accent-rgb), 0.22);
+}
+
+body[data-theme="midnight-violet"] .search-area input,
+body[data-theme="midnight-violet"] .modal-content input,
+body[data-theme="midnight-violet"] .modal-content select,
+body[data-theme="midnight-violet"] .login-popup input,
+body[data-theme="midnight-violet"] .profile-icon,
+body[data-theme="midnight-violet"] .profile-dropdown button,
+body[data-theme="midnight-violet"] .filter-control select,
+body[data-theme="midnight-violet"] .favorites-filter-btn,
+body[data-theme="midnight-violet"] .filter-share-btn,
+body[data-theme="midnight-violet"] .share-field input,
+body[data-theme="midnight-violet"] .share-field select,
+body[data-theme="midnight-violet"] .settings-action-btn,
+body[data-theme="midnight-violet"] .settings-reset-btn,
+body[data-theme="midnight-violet"] .theme-option {
+  background: rgba(20, 17, 42, 0.74);
+  color: var(--text);
+}
+
+body[data-theme="midnight-violet"] .filter-control select option,
+body[data-theme="midnight-violet"] .share-field select option,
+body[data-theme="midnight-violet"] .modal-content select option {
+  background: #17142f;
+  color: #f8f7ff;
+}
+
+body[data-theme="midnight-violet"] .theme-option.active {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(var(--accent-rgb), 0.14);
+  border-color: rgba(var(--accent-rgb), 0.34);
+}
+
+body[data-theme="midnight-violet"] .toast-success .toast-badge,
+body[data-theme="midnight-violet"] .season-tag-btn.active,
+body[data-theme="midnight-violet"] .search-item button {
+  background: linear-gradient(135deg, var(--accent), var(--warning));
+  color: #fff;
+}
+
+body[data-theme="midnight-violet"] .toast-error .toast-badge {
+  background: linear-gradient(135deg, var(--danger), #ff8aa5);
+}
+
+body[data-theme="midnight-violet"] .toast-info .toast-badge {
+  background: linear-gradient(135deg, #6f62dd, var(--accent));
+}
+
+body[data-theme="midnight-violet"] .toast-warning .toast-badge {
+  background: linear-gradient(135deg, #f4b03f, #c87516);
+  color: #221607;
+}
+
+body[data-theme="midnight-violet"] .season-card,
+body[data-theme="midnight-violet"] .season-empty {
+  background: linear-gradient(180deg, rgba(24, 20, 47, 0.96), rgba(30, 25, 58, 0.92));
+}
+
+body[data-theme="midnight-violet"] .season-poster,
+body[data-theme="midnight-violet"] .season-card img {
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.2), rgba(var(--warning-rgb), 0.18));
+}
+
+body[data-theme="midnight-violet"] .season-status-badge.watching {
+  background: rgba(var(--accent-rgb), 0.18);
+  color: #f1eeff;
+}
+
+body[data-theme="midnight-violet"] .season-status-badge.completed {
+  background: rgba(var(--warning-rgb), 0.18);
+  color: #f6f1ff;
+}
+
+body[data-theme="midnight-violet"] .profile-icon {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    linear-gradient(135deg, rgba(var(--accent-rgb), 0.26), rgba(var(--warning-rgb), 0.22));
+}
+
+body[data-theme="midnight-violet"] .login-popup {
+  background:
+    linear-gradient(180deg, rgba(18, 15, 36, 0.97), rgba(24, 20, 47, 0.94)),
+    var(--surface-strong);
+}
+
+body[data-theme="midnight-violet"] .login-popup::before {
+  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.34), transparent 68%);
+}
+
+body[data-theme="midnight-violet"] .login-popup::after {
+  background: radial-gradient(circle, rgba(var(--warning-rgb), 0.24), transparent 70%);
 }
 
 @media (max-width: 900px) {

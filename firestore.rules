@@ -54,6 +54,10 @@ service cloud.firestore {
     match /users/{uid} {
       allow get, create, update, delete: if isOwner(uid);
       allow list: if false;
+
+      match /trackerItems/{itemId} {
+        allow get, list, create, update, delete: if isOwner(uid);
+      }
     }
 
     match /usernames/{usernameKey} {
