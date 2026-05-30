@@ -775,8 +775,8 @@ function getAniListDateTimestamp(dateParts) {
 
 function getAniListPreferredTitle(media) {
   return (
-    media?.title?.userPreferred ||
     media?.title?.english ||
+    media?.title?.userPreferred ||
     media?.title?.romaji ||
     media?.title?.native ||
     "Untitled"
@@ -1114,10 +1114,64 @@ function isSeasonLikeAniListMedia(media) {
   const format = String(media?.format || "").toUpperCase();
   const episodeCount = Number.parseInt(media?.episodes, 10);
 
-  return (
-    episodeCount > 0 &&
-    !["MOVIE", "MUSIC", "SPECIAL"].includes(format)
-  );
+  if (episodeCount <= 0 || ["MOVIE", "MUSIC", "SPECIAL", "OVA"].includes(format)) {
+    return false;
+  }
+
+  if (format === "ONA" && episodeCount < 6) {
+    return false;
+  }
+
+  return true;
+}
+
+function filterMainAnimeSeasons(seasons) {
+  if (!Array.isArray(seasons)) {
+    return [];
+  }
+
+  return seasons.filter((season) => {
+    const seasonNumber = Number.parseInt(season?.seasonNumber, 10) || 0;
+    const episodeCount = Number.parseInt(season?.episodeCount, 10) || 0;
+    const name = normalizeText(season?.name || "");
+
+    if (seasonNumber <= 0 || episodeCount <= 0) {
+      return false;
+    }
+
+    return !/\b(ova|oad|special|recap|summary|movie|side story|short)\b/.test(name);
+  });
+}
+
+function mergeSeasonEpisodeCounts(primarySeasons, episodeSourceSeasons) {
+  return primarySeasons.map((season, index) => {
+    const sourceEpisodeCount = Math.max(
+      0,
+      Number.parseInt(episodeSourceSeasons[index]?.episodeCount, 10) || 0
+    );
+
+    return {
+      ...season,
+      episodeCount: Math.max(season.episodeCount, sourceEpisodeCount)
+    };
+  });
+}
+
+function pickSeasonListForItem(item, aniListSeasons, tmdbSeasons) {
+  if (isAnimeScheduleCategory(item?.category)) {
+    const mainTmdbSeasons = filterMainAnimeSeasons(tmdbSeasons);
+    const mainAniListSeasons = filterMainAnimeSeasons(aniListSeasons);
+
+    if (mainTmdbSeasons.length) {
+      return mergeSeasonEpisodeCounts(mainTmdbSeasons, mainAniListSeasons);
+    }
+
+    if (mainAniListSeasons.length) {
+      return mainAniListSeasons;
+    }
+  }
+
+  return pickRicherSeasonList(aniListSeasons, tmdbSeasons);
 }
 
 function getAniListSeasonSortValue(media) {
@@ -4661,7 +4715,8 @@ async function ensureSeasonData(item, options = {}) {
   const aniListSeasons = sanitizeSeasonList(aniListDetails?.seasons, fallbackImage);
   const fetchedSeasons = knownOverride
     ? knownDonghuaSeasons
-    : pickRicherSeasonList(
+    : pickSeasonListForItem(
+        item,
         aniListSeasons,
         tmdbSeasons
       );
@@ -4684,17 +4739,17 @@ async function ensureSeasonData(item, options = {}) {
     (count, season) => count + season.episodeCount,
     0
   );
+  const fetchedSeasonCount =
+    seasons.length ||
+    Math.max(
+      Number.parseInt(details?.number_of_seasons, 10) || 0,
+      Number.parseInt(aniListDetails?.number_of_seasons, 10) || 0
+    );
 
   item.image = fallbackImage;
   item.overview = fetchedOverview;
   item.seasons = seasons;
-  item.seasonCount = knownOverride
-    ? seasons.length
-    : Math.max(
-        seasons.length,
-        Number.parseInt(details?.number_of_seasons, 10) || 0,
-        Number.parseInt(aniListDetails?.number_of_seasons, 10) || 0
-      );
+  item.seasonCount = knownOverride ? seasons.length : fetchedSeasonCount;
   item.total = knownOverride
     ? Math.max(
         Number.parseInt(item.watched, 10) || 0,
