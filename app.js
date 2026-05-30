@@ -22,6 +22,25 @@ const CATEGORY_OPTIONS = new Set([
   "WebSeries"
 ]);
 const ANILIST_SCHEDULE_CATEGORIES = new Set(["Anime", "Donghua"]);
+const ANIME_SIDE_STORY_MARKERS = [
+  "ova",
+  "oad",
+  "special",
+  "specials",
+  "recap",
+  "summary",
+  "movie",
+  "film",
+  "side story",
+  "spin off",
+  "spinoff",
+  "short",
+  "theatrical",
+  "diary",
+  "diaries",
+  "nikki",
+  "coleus"
+];
 const AIRING_TAB_OPTIONS = new Set(["episodes", "seasons"]);
 const AIRING_CATEGORY_FILTER_OPTIONS = new Set([
   "All",
@@ -555,6 +574,10 @@ function getSeasonCount(item) {
   }
 
   if (deletedSeasonIds.length) {
+    return listCount;
+  }
+
+  if (isAnimeScheduleCategory(item.category) && listCount > 0) {
     return listCount;
   }
 
@@ -1125,7 +1148,56 @@ function isSeasonLikeAniListMedia(media) {
   return true;
 }
 
-function filterMainAnimeSeasons(seasons) {
+function getNumberedSeasonName(seasonNumber) {
+  const number = Math.max(1, Number.parseInt(seasonNumber, 10) || 1);
+  return `Season ${number}`;
+}
+
+function isGenericSeasonName(value) {
+  const name = normalizeText(value);
+  return name === "specials" || /^season\s+\d+$/.test(name);
+}
+
+function hasNormalizedPhrase(value, phrase) {
+  return ` ${normalizeText(value)} `.includes(` ${normalizeText(phrase)} `);
+}
+
+function hasAnimeSideStoryMarker(item, season) {
+  return ANIME_SIDE_STORY_MARKERS.some((marker) => {
+    return (
+      hasNormalizedPhrase(season?.name || "", marker) &&
+      !hasNormalizedPhrase(item?.title || "", marker)
+    );
+  });
+}
+
+function looksLikeMainAnimeSeason(item, season) {
+  const name = normalizeText(season?.name || "");
+  const seasonNumber = Number.parseInt(season?.seasonNumber, 10) || 0;
+
+  if (!name || isGenericSeasonName(name) || seasonNumber <= 1) {
+    return true;
+  }
+
+  if (/\b(\d+(st|nd|rd|th)\s+season|season\s+\d+|part\s+\d+|cour\s+\d+)\b/.test(name)) {
+    return true;
+  }
+
+  const target = normalizeScheduleTitle(item?.title || "");
+  const source = normalizeScheduleTitle(season?.name || "");
+  const targetTokens = target.split(" ").filter((token) => token.length > 2);
+
+  return Boolean(
+    target &&
+      source &&
+      (source.includes(target) ||
+        target.includes(source) ||
+        (targetTokens.length > 0 &&
+          targetTokens.every((token) => source.includes(token))))
+  );
+}
+
+function filterMainAnimeSeasons(item, seasons) {
   if (!Array.isArray(seasons)) {
     return [];
   }
@@ -1133,13 +1205,34 @@ function filterMainAnimeSeasons(seasons) {
   return seasons.filter((season) => {
     const seasonNumber = Number.parseInt(season?.seasonNumber, 10) || 0;
     const episodeCount = Number.parseInt(season?.episodeCount, 10) || 0;
-    const name = normalizeText(season?.name || "");
 
     if (seasonNumber <= 0 || episodeCount <= 0) {
       return false;
     }
 
-    return !/\b(ova|oad|special|recap|summary|movie|side story|short)\b/.test(name);
+    const isAniListSeason = String(season?.id || "").startsWith("anilist-");
+    const looksMain = isAniListSeason ? looksLikeMainAnimeSeason(item, season) : true;
+
+    if (
+      (episodeCount < 6 && !isGenericSeasonName(season?.name || "")) ||
+      hasAnimeSideStoryMarker(item, season)
+    ) {
+      return false;
+    }
+
+    return looksMain;
+  });
+}
+
+function normalizeMainAnimeSeasonList(item, seasons) {
+  return filterMainAnimeSeasons(item, seasons).map((season, index) => {
+    const seasonNumber = index + 1;
+
+    return {
+      ...season,
+      seasonNumber,
+      name: getNumberedSeasonName(seasonNumber)
+    };
   });
 }
 
@@ -1159,8 +1252,8 @@ function mergeSeasonEpisodeCounts(primarySeasons, episodeSourceSeasons) {
 
 function pickSeasonListForItem(item, aniListSeasons, tmdbSeasons) {
   if (isAnimeScheduleCategory(item?.category)) {
-    const mainTmdbSeasons = filterMainAnimeSeasons(tmdbSeasons);
-    const mainAniListSeasons = filterMainAnimeSeasons(aniListSeasons);
+    const mainTmdbSeasons = normalizeMainAnimeSeasonList(item, tmdbSeasons);
+    const mainAniListSeasons = normalizeMainAnimeSeasonList(item, aniListSeasons);
 
     if (mainTmdbSeasons.length) {
       return mergeSeasonEpisodeCounts(mainTmdbSeasons, mainAniListSeasons);
@@ -4581,8 +4674,12 @@ function isRelatedKnownDonghuaSeason(item, season) {
 function preserveSeasonStatuses(nextSeasons, existingSeasons, item = null) {
   const byNumber = new Map();
   const byName = new Map();
+  const statusSourceSeasons =
+    item && isAnimeScheduleCategory(item.category) && !getKnownDonghuaSeasonOverride(item)
+      ? normalizeMainAnimeSeasonList(item, existingSeasons)
+      : existingSeasons;
 
-  existingSeasons.forEach((season) => {
+  statusSourceSeasons.forEach((season) => {
     if (!season.status || !isRelatedKnownDonghuaSeason(item, season)) {
       return;
     }
@@ -4661,19 +4758,29 @@ async function ensureSeasonData(item, options = {}) {
     return [];
   }
 
-  const existingSeasons = filterDeletedSeasons(
+  const knownOverride = getKnownDonghuaSeasonOverride(item);
+  const shouldUseAnimeSeasonCleanup =
+    isAnimeScheduleCategory(item.category) && !knownOverride;
+  const rawExistingSeasons = filterDeletedSeasons(
     item,
     sanitizeSeasonList(item.seasons, item.image)
   );
+  const existingSeasons = shouldUseAnimeSeasonCleanup
+    ? normalizeMainAnimeSeasonList(item, rawExistingSeasons)
+    : rawExistingSeasons;
+  const existingSeasonsWereCleaned =
+    JSON.stringify(rawExistingSeasons) !== JSON.stringify(existingSeasons);
   item.overview = String(item.overview || "").trim();
 
   if (!force && !shouldRefreshSeasonDetails(item, existingSeasons)) {
     item.seasons = existingSeasons;
     item.seasonCount = getSeasonCount(item);
+    if (persist && existingSeasonsWereCleaned) {
+      void queueTrackerSync();
+    }
     return existingSeasons;
   }
 
-  const knownOverride = getKnownDonghuaSeasonOverride(item);
   const shouldFetchAniList = isAnimeScheduleCategory(item.category) && !knownOverride;
 
   if (!item.id && !shouldFetchAniList && !knownOverride) {
