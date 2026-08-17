@@ -1561,6 +1561,13 @@ function createTrackerEntry(searchItem, details, mediaType) {
 
   return {
     id: searchItem.id ?? details.id ?? null,
+    cloudId: createTrackerItemDocumentId({
+      createdAt: timestamp,
+      id: searchItem.id ?? details.id ?? null,
+      category: selectedCategory,
+      mediaType,
+      title
+    }),
     title,
     image,
     isFavorite: false,
@@ -1628,6 +1635,7 @@ function sanitizeTrackerList(items) {
 
       return {
         id: item.id ?? null,
+        cloudId: String(item.cloudId || "").trim(),
         title,
         image,
         isFavorite: Boolean(item.isFavorite),
@@ -1726,6 +1734,7 @@ function createCloudTrackerPayload(items, options = {}) {
     if (!compact) {
       return {
         id: item.id ?? null,
+        cloudId: String(item.cloudId || "").trim(),
         title: item.title,
         image: item.image,
         isFavorite: Boolean(item.isFavorite),
@@ -1747,6 +1756,7 @@ function createCloudTrackerPayload(items, options = {}) {
 
     const payload = {
       id: item.id ?? null,
+      cloudId: String(item.cloudId || "").trim(),
       title: item.title,
       isFavorite: Boolean(item.isFavorite),
       watched: item.watched,
@@ -1784,19 +1794,18 @@ function createCloudTrackerPayload(items, options = {}) {
   });
 }
 
-function createTrackerItemDocumentId(item, index = 0) {
+function createTrackerItemDocumentId(item) {
   const seed = [
     item?.createdAt,
     item?.id,
     item?.category,
     item?.mediaType,
-    item?.title,
-    index
-  ].map((value) => String(value || "").trim()).join("|") || `item-${index}`;
-  const slug = normalizeText(item?.title || `item-${index}`)
+    item?.title
+  ].map((value) => String(value || "").trim()).join("|") || "item";
+  const slug = normalizeText(item?.title || "item")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || `item-${index}`;
+    .slice(0, 48) || "item";
   let hash = 0;
 
   for (let index = 0; index < seed.length; index += 1) {
@@ -1806,9 +1815,20 @@ function createTrackerItemDocumentId(item, index = 0) {
   return `${slug}-${Math.abs(hash).toString(36)}`;
 }
 
+function getTrackerItemDocumentId(item) {
+  return String(item?.cloudId || "").trim() || createTrackerItemDocumentId(item);
+}
+
+function ensureTrackerCloudIds(items) {
+  return sanitizeTrackerList(items).map((item) => ({
+    ...item,
+    cloudId: getTrackerItemDocumentId(item)
+  }));
+}
+
 function createCloudTrackerItemDocuments(items) {
-  return createCloudTrackerPayload(items).map((item, index) => ({
-    id: createTrackerItemDocumentId(item, index),
+  return createCloudTrackerPayload(ensureTrackerCloudIds(items)).map((item, index) => ({
+    id: getTrackerItemDocumentId(item),
     data: {
       ...item,
       cloudOrder: index,
@@ -1824,6 +1844,50 @@ function getTrackerLatestTimestamp(items) {
       getTimestampValue(item.lastProgressAt || item.updatedAt || item.createdAt)
     );
   }, 0);
+}
+
+function getTrackerItemMatchKey(item) {
+  return [
+    String(item?.id ?? "").trim(),
+    normalizeText(item?.category || ""),
+    String(item?.mediaType || "tv").trim(),
+    normalizeText(item?.title || item?.name || "")
+  ].join("|");
+}
+
+function getTrackerItemUpdatedTimestamp(item) {
+  return getTimestampValue(item?.updatedAt || item?.lastProgressAt || item?.createdAt);
+}
+
+function mergeTrackerLists(...lists) {
+  const merged = [];
+  const indexesByKey = new Map();
+
+  lists.forEach((list) => {
+    ensureTrackerCloudIds(list).forEach((item) => {
+      const key = getTrackerItemMatchKey(item);
+      const existingIndex = indexesByKey.get(key);
+
+      if (existingIndex === undefined) {
+        indexesByKey.set(key, merged.length);
+        merged.push(item);
+        return;
+      }
+
+      const existingItem = merged[existingIndex];
+      const shouldReplace =
+        getTrackerItemUpdatedTimestamp(item) > getTrackerItemUpdatedTimestamp(existingItem);
+      const preferredItem = shouldReplace ? item : existingItem;
+      const cloudId = existingItem.cloudId || item.cloudId || getTrackerItemDocumentId(preferredItem);
+
+      merged[existingIndex] = {
+        ...preferredItem,
+        cloudId
+      };
+    });
+  });
+
+  return merged;
 }
 
 function persistTrackerLocally(email, items) {
@@ -1852,24 +1916,39 @@ function readLegacyTracker(email) {
 }
 
 async function writeTrackerToCloud(user, trackerPayload, options = {}) {
-  const { deleteDoc, deleteField, getDocs, setDoc } = getFirebaseApi();
+  const { deleteField, getDocs, setDoc } = getFirebaseApi();
   const itemDocuments = createCloudTrackerItemDocuments(trackerPayload);
 
   try {
     const existingSnapshot = await getDocs(getUserTrackerCollectionRef(user.uid));
-    const nextIds = new Set(itemDocuments.map((entry) => entry.id));
-    const deletePromises = existingSnapshot.docs
-      .filter((documentSnapshot) => !nextIds.has(documentSnapshot.id))
-      .map((documentSnapshot) => deleteDoc(documentSnapshot.ref));
     const writePromises = itemDocuments.map((entry) =>
       setDoc(getUserTrackerItemDocRef(user.uid, entry.id), entry.data)
     );
-    const results = await Promise.allSettled([...deletePromises, ...writePromises]);
+    const results = await Promise.allSettled(writePromises);
     const failedResult = results.find((result) => result.status === "rejected");
 
     if (failedResult) {
       throw failedResult.reason || new Error("Cloud item sync failed");
     }
+
+    const existingDocumentIds = new Set(
+      existingSnapshot.docs.map((documentSnapshot) => documentSnapshot.id)
+    );
+    itemDocuments.forEach((entry) => existingDocumentIds.add(entry.id));
+
+    const payload = {
+      email: user.email || "",
+      tracker: deleteField ? deleteField() : [],
+      trackerStorageVersion: 3,
+      trackerCount: existingDocumentIds.size,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (options.migratedFromLocal) {
+      payload.migratedFromLocal = true;
+    }
+
+    await setDoc(getUserDocRef(user.uid), payload, { merge: true });
   } catch (error) {
     if (!isPermissionDeniedError(error)) {
       throw error;
@@ -1878,20 +1957,6 @@ async function writeTrackerToCloud(user, trackerPayload, options = {}) {
     await writeLegacyTrackerDocumentToCloud(user, trackerPayload, options);
     return;
   }
-
-  const payload = {
-    email: user.email || "",
-    tracker: deleteField ? deleteField() : [],
-    trackerStorageVersion: 2,
-    trackerCount: itemDocuments.length,
-    updatedAt: new Date().toISOString()
-  };
-
-  if (options.migratedFromLocal) {
-    payload.migratedFromLocal = true;
-  }
-
-  await setDoc(getUserDocRef(user.uid), payload, { merge: true });
 }
 
 async function writeLegacyTrackerDocumentToCloud(user, trackerPayload, options = {}) {
@@ -2109,6 +2174,7 @@ async function fetchRemoteUserData(user) {
   const { getDoc, getDocs } = getFirebaseApi();
   const snapshot = await getDoc(getUserDocRef(user.uid));
   let trackerItems = [];
+  let trackerItemsReadError = null;
 
   try {
     const trackerSnapshot = await getDocs(getUserTrackerCollectionRef(user.uid));
@@ -2117,6 +2183,7 @@ async function fetchRemoteUserData(user) {
         const data = documentSnapshot.data() || {};
         return {
           ...data,
+          cloudId: documentSnapshot.id,
           cloudOrder: Number.parseInt(data.cloudOrder, 10) || 0
         };
       })
@@ -2126,27 +2193,32 @@ async function fetchRemoteUserData(user) {
         return trackerItem;
       });
   } catch (error) {
-    trackerItems = [];
+    trackerItemsReadError = error;
   }
+
+  const data = snapshot.exists() ? snapshot.data() || {} : {};
+  const legacyTracker = sanitizeTrackerList(data.tracker);
+  const cloudTracker = mergeTrackerLists(trackerItems, legacyTracker);
+  const trackerReadFailed = Boolean(trackerItemsReadError && !legacyTracker.length);
 
   if (!snapshot.exists()) {
     return {
       exists: trackerItems.length > 0,
-      tracker: sanitizeTrackerList(trackerItems),
+      tracker: cloudTracker,
       profileAvatar: "",
-      username: ""
+      username: "",
+      trackerReadFailed,
+      trackerReadError: trackerItemsReadError
     };
   }
 
-  const data = snapshot.data() || {};
-
   return {
     exists: true,
-    tracker: sanitizeTrackerList(
-      trackerItems.length ? trackerItems : data.tracker
-    ),
+    tracker: cloudTracker,
     profileAvatar: String(data.profileAvatar || ""),
-    username: normalizeUsernameValue(data.username || "")
+    username: normalizeUsernameValue(data.username || ""),
+    trackerReadFailed,
+    trackerReadError: trackerItemsReadError
   };
 }
 
@@ -2157,20 +2229,23 @@ async function loadUserDataForUser(user) {
   const guestAvatar = readStoredProfileAvatar("");
   const nextLocalAvatar = localAvatar || guestAvatar;
 
+  if (remote.trackerReadFailed) {
+    if (localTracker.length) {
+      return {
+        tracker: ensureTrackerCloudIds(localTracker),
+        profileAvatar: remote.profileAvatar || nextLocalAvatar || "",
+        username: remote.username || "",
+        cloudTrackerReadFailed: true
+      };
+    }
+
+    throw remote.trackerReadError || new Error("Cloud tracker could not be read");
+  }
+
   if (remote.exists) {
-    const shouldPreferLocalTracker =
-      localTracker.length &&
-      (
-        !remote.tracker.length ||
-        getTrackerLatestTimestamp(localTracker) > getTrackerLatestTimestamp(remote.tracker)
-      );
-    const nextTracker = shouldPreferLocalTracker ? localTracker : remote.tracker;
+    const nextTracker = mergeTrackerLists(remote.tracker, localTracker);
 
     persistTrackerLocally(user.email || "", nextTracker);
-
-    if (shouldPreferLocalTracker) {
-      void writeTrackerToCloud(user, localTracker).catch(() => false);
-    }
 
     if (remote.profileAvatar) {
       persistProfileAvatarLocally(remote.profileAvatar, user.email || "");
@@ -2233,7 +2308,8 @@ function queueTrackerSync() {
   }
 
   const userSnapshot = currentUser;
-  const trackerSnapshot = sanitizeTrackerList(tracker);
+  tracker = ensureTrackerCloudIds(tracker);
+  const trackerSnapshot = tracker;
   const savedLocally = persistTrackerLocally(userSnapshot.email || "", trackerSnapshot);
 
   saveQueue = saveQueue
@@ -2244,6 +2320,33 @@ function queueTrackerSync() {
         return true;
       } catch (error) {
         showError(getCloudSaveErrorMessage(error, savedLocally));
+        return false;
+      }
+    });
+
+  return saveQueue;
+}
+
+function queueTrackerItemDeletion(item) {
+  if (!currentUser || !item) {
+    return Promise.resolve(false);
+  }
+
+  const userSnapshot = currentUser;
+  const documentId = getTrackerItemDocumentId(item);
+  const title = String(item.title || "this title").trim();
+
+  saveQueue = saveQueue
+    .catch(() => false)
+    .then(async () => {
+      try {
+        const { deleteDoc } = getFirebaseApi();
+        await deleteDoc(getUserTrackerItemDocRef(userSnapshot.uid, documentId));
+        return true;
+      } catch (error) {
+        if (!isPermissionDeniedError(error)) {
+          showWarning(`"${title}" was removed locally, but its cloud copy could not be removed.`);
+        }
         return false;
       }
     });
@@ -5445,9 +5548,13 @@ function confirmDelete() {
     return;
   }
 
+  const deletedItems = tracker.filter((entry) => entry.title === deletingTitle);
   tracker = tracker.filter((entry) => entry.title !== deletingTitle);
   closeDeleteModal();
   save();
+  deletedItems.forEach((item) => {
+    void queueTrackerItemDeletion(item);
+  });
   showSuccess("The title was removed from your tracker.");
 }
 
@@ -6961,6 +7068,9 @@ async function startAuthListener() {
       applyProfileAvatar();
       updateUsernameSettingsUI();
       render();
+      if (nextUserData.cloudTrackerReadFailed) {
+        showWarning("Your cloud tracker could not be checked. The titles saved on this device were left unchanged.");
+      }
       startAiringNotificationTimer();
     } catch (error) {
       if (loadToken !== authLoadToken) {
@@ -6968,10 +7078,13 @@ async function startAuthListener() {
       }
 
       currentUsername = "";
-      tracker = [];
       updateUsernameSettingsUI();
       render();
-      showError("Could not load your cloud tracker.");
+      showError(
+        tracker.length
+          ? "Could not load your cloud tracker. The titles saved on this device were left unchanged."
+          : "Could not load your cloud tracker. Please try again later."
+      );
     }
   });
 }
