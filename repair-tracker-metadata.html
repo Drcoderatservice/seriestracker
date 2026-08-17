@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Repair SeriesTracker Details</title>
+  <style>
+    :root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090511;color:#fff;font:16px system-ui,sans-serif}main{width:min(580px,calc(100% - 32px));padding:28px;border:1px solid #5b4677;border-radius:18px;background:#151020;box-shadow:0 18px 50px #0008}h1{margin-top:0}p{line-height:1.55;color:#d9d0e6}.notice{padding:12px;border-radius:10px;background:#221a31}.row{display:grid;gap:10px;margin:18px 0}input,button{font:inherit;border-radius:10px;padding:12px}input{border:1px solid #6e5b85;background:#0d0915;color:#fff}button{border:0;background:#d7224b;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}.hidden{display:none}.small{font-size:.9rem;color:#bbaecb;white-space:pre-line}a{color:#ff8caf}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Repair posters and details</h1>
+    <p class="notice">This tool finds an exact title match, then fills only missing metadata: poster, overview, TMDB ID and season information. Your title, category, progress and status stay unchanged. Uncertain titles are skipped.</p>
+    <p id="summary">Log in to check your tracker.</p>
+    <section id="loginPanel" class="hidden">
+      <form id="loginForm" class="row">
+        <input id="email" type="email" required autocomplete="email" placeholder="Email address">
+        <input id="password" type="password" required autocomplete="current-password" placeholder="Password">
+        <button>Log in</button>
+      </form>
+    </section>
+    <section id="repairPanel" class="hidden">
+      <p id="account"></p>
+      <button id="repairButton">Repair missing posters and details</button>
+    </section>
+    <p id="status" class="small"></p>
+    <p><a href="./">Back to SeriesTracker</a></p>
+  </main>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-auth.js";
+    import { getFirestore, collection, doc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-firestore.js";
+
+    const config = {
+      apiKey: "AIzaSyAm-13tnybtpD3KEwTSnx4JKGYpE0NV_xM",
+      authDomain: "trackerflix-9f3cb.firebaseapp.com",
+      projectId: "trackerflix-9f3cb",
+      storageBucket: "trackerflix-9f3cb.firebasestorage.app",
+      messagingSenderId: "191328175525",
+      appId: "1:191328175525:web:47f05118cb92e032a9544c"
+    };
+    const auth = getAuth(initializeApp(config));
+    const db = getFirestore();
+    const searchBase = "https://little-mountain-71e9.sharmarishav2100.workers.dev";
+    const summary = document.querySelector("#summary");
+    const status = document.querySelector("#status");
+    const loginPanel = document.querySelector("#loginPanel");
+    const repairPanel = document.querySelector("#repairPanel");
+    const repairButton = document.querySelector("#repairButton");
+
+    const clean = value => String(value ?? "").trim();
+    const titleKey = value => clean(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "");
+    const imageUrl = path => {
+      const value = clean(path);
+      if (!value) return "";
+      return value.startsWith("http") ? value : value.startsWith("/") ? "https://image.tmdb.org/t/p/w500" + value : value;
+    };
+    const resultType = result => {
+      if (result?.media_type === "movie" || result?.media_type === "tv") return result.media_type;
+      return result?.title && !result?.name ? "movie" : "tv";
+    };
+    const resultTitle = result => clean(result?.title ?? result?.name);
+    const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+    async function findExactMatch(item) {
+      const response = await fetch(searchBase + "?q=" + encodeURIComponent(item.title));
+      if (!response.ok) throw new Error("Search request failed");
+      const data = await response.json();
+      const wantedTitle = titleKey(item.title);
+      const wantedType = item.mediaType === "movie" ? "movie" : "tv";
+      const results = Array.isArray(data.results) ? data.results : [];
+      return results.find(result => resultType(result) === wantedType && titleKey(resultTitle(result)) === wantedTitle) || null;
+    }
+
+    async function fetchDetails(id, mediaType) {
+      const response = await fetch(searchBase + "?details=" + encodeURIComponent(id) + "&type=" + encodeURIComponent(mediaType));
+      if (!response.ok) throw new Error("Details request failed");
+      return response.json();
+    }
+
+    function seasonsFrom(details, fallbackImage, deletedIds) {
+      if (!Array.isArray(details?.seasons)) return [];
+      return details.seasons
+        .map(season => {
+          const number = Math.max(0, parseInt(season?.season_number, 10) || 0);
+          const id = season?.id ?? String(number) + "-" + clean(season?.name);
+          return {
+            id,
+            name: clean(season?.name) || (number === 0 ? "Specials" : "Season " + (number || 1)),
+            seasonNumber:number,
+            episodeCount:Math.max(0, parseInt(season?.episode_count, 10) || 0),
+            airDate:clean(season?.air_date),
+            overview:clean(season?.overview),
+            image:imageUrl(season?.poster_path) || fallbackImage,
+            status:""
+          };
+        })
+        .filter(season => (season.episodeCount > 0 || season.seasonNumber > 0) && !deletedIds.has(String(season.id)));
+    }
+
+    async function repairTracker() {
+      const user = auth.currentUser;
+      if (!user) return;
+      repairButton.disabled = true;
+      let repaired = 0;
+      let alreadyComplete = 0;
+      let skipped = 0;
+      let failed = 0;
+      try {
+        const snapshot = await getDocs(collection(db, "users", user.uid, "trackerItems"));
+        const items = snapshot.docs.map(entry => ({ id:entry.id, data:entry.data() || {} }));
+        const candidates = items.filter(entry => {
+          const item = entry.data;
+          return !clean(item.image) || !clean(item.id) || !clean(item.overview) || (item.mediaType !== "movie" && (!Array.isArray(item.seasons) || !item.seasons.length));
+        });
+        summary.textContent = candidates.length + " titles need missing metadata checked.";
+        for (let index = 0; index < candidates.length; index += 1) {
+          const entry = candidates[index];
+          const item = entry.data;
+          status.textContent = "Checking " + (index + 1) + "/" + candidates.length + ": " + item.title;
+          try {
+            const match = await findExactMatch(item);
+            if (!match) { skipped += 1; continue; }
+            const mediaType = item.mediaType === "movie" ? "movie" : "tv";
+            const details = await fetchDetails(match.id, mediaType);
+            const poster = imageUrl(details?.poster_path) || imageUrl(match.poster_path) || clean(item.image);
+            const deletedIds = new Set((Array.isArray(item.deletedSeasonIds) ? item.deletedSeasonIds : []).map(value => String(value)));
+            const seasons = mediaType === "movie" ? [] : seasonsFrom(details, poster, deletedIds);
+            const seasonEpisodes = seasons.reduce((total, season) => total + season.episodeCount, 0);
+            const updated = {
+              ...item,
+              id:match.id,
+              image:poster,
+              overview:clean(item.overview) || clean(details?.overview) || clean(match.overview),
+              seasonCount:mediaType === "movie" ? 0 : Math.max(seasons.length, parseInt(details?.number_of_seasons, 10) || 0, parseInt(item.seasonCount, 10) || 1),
+              seasons,
+              total:mediaType === "movie" ? 1 : Math.max(parseInt(item.total, 10) || 1, parseInt(details?.number_of_episodes, 10) || 0, seasonEpisodes, 1),
+              detailsHydratedAt:new Date().toISOString(),
+              cloudUpdatedAt:new Date().toISOString()
+            };
+            await setDoc(doc(db, "users", user.uid, "trackerItems", entry.id), updated);
+            repaired += 1;
+          } catch {
+            failed += 1;
+          }
+          await pause(100);
+        }
+        alreadyComplete = items.length - candidates.length;
+        status.textContent = "Finished. " + repaired + " titles repaired; " + alreadyComplete + " already complete; " + skipped + " safely skipped because no exact match was found; " + failed + " could not be loaded. Refresh SeriesTracker to see the posters and details.";
+      } catch (error) {
+        status.textContent = "Repair could not start: " + (error.message || "please try again.");
+      } finally {
+        repairButton.disabled = false;
+      }
+    }
+
+    document.querySelector("#loginForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      status.textContent = "Logging in…";
+      try {
+        await signInWithEmailAndPassword(auth, document.querySelector("#email").value.trim(), document.querySelector("#password").value);
+      } catch { status.textContent = "Login failed. Check email and password."; }
+    });
+    repairButton.addEventListener("click", repairTracker);
+    onAuthStateChanged(auth, user => {
+      loginPanel.classList.toggle("hidden", Boolean(user));
+      repairPanel.classList.toggle("hidden", !user);
+      if (user) {
+        document.querySelector("#account").textContent = "Repairing only missing metadata for " + (user.email || "your account") + ".";
+        summary.textContent = "Your tracker is ready to check.";
+      }
+    });
+  </script>
+</body>
+</html>
