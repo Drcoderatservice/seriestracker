@@ -54,6 +54,8 @@ const SORT_OPTIONS = new Set(["Newest", "Oldest", "AZ", "ZA"]);
 const DEFAULT_VIEW_CATEGORY_OPTIONS = new Set(["Home", ...CATEGORY_OPTIONS]);
 const THEME_OPTIONS = new Set(["default", "midnight-violet", "netflix-red", "ocean-night"]);
 const DEFAULT_THEME = "default";
+const TRACKER_BACKUP_FORMAT = "seriestracker-backup";
+const TRACKER_BACKUP_VERSION = 1;
 const THEME_STORAGE_KEY = "seriestracker_theme";
 const THEME_STORAGE_VERSION_KEY = "seriestracker_theme_version";
 const THEME_STORAGE_VERSION = "theme-options-2026-05-16";
@@ -5648,6 +5650,94 @@ function updateStatus(item, forceProgressStatus = false) {
   }
 }
 
+
+function setTrackerBackupStatus(message) {
+  const statusNode = document.getElementById("trackerBackupStatus");
+  if (statusNode) statusNode.textContent = String(message || "");
+}
+
+function getTrackerBackupMergeKey(item) {
+  return [normalizeText(item?.title || item?.name || ""), normalizeText(item?.category || "")].join("|");
+}
+
+function exportTrackerBackup() {
+  if (!currentUser) {
+    openLogin();
+    showWarning("Log in first to export a backup.");
+    return;
+  }
+  const items = createCloudTrackerPayload(ensureTrackerCloudIds(tracker));
+  const payload = {
+    format: TRACKER_BACKUP_FORMAT,
+    version: TRACKER_BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    titleCount: items.length,
+    tracker: items
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "seriestracker-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTrackerBackupStatus("Backup downloaded: " + items.length + " titles. Save this JSON file in Drive, Files, or a pendrive.");
+  showSuccess("Backup downloaded.");
+}
+
+function triggerTrackerBackupImport() {
+  if (!currentUser) {
+    openLogin();
+    showWarning("Log in first to import a backup.");
+    return;
+  }
+  document.getElementById("trackerBackupImportInput")?.click();
+}
+
+async function handleTrackerBackupImport(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    setTrackerBackupStatus("Reading backup file...");
+    const parsed = JSON.parse(await file.text());
+    if (!Array.isArray(parsed) && parsed?.format && parsed.format !== TRACKER_BACKUP_FORMAT) {
+      throw new Error("This is not a SeriesTracker backup file.");
+    }
+    const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.tracker) ? parsed.tracker : Array.isArray(parsed?.items) ? parsed.items : [];
+    if (!rawItems.length) throw new Error("No titles were found in this backup.");
+    const importedItems = ensureTrackerCloudIds(sanitizeTrackerList(rawItems));
+    const existingKeys = new Set(tracker.map(getTrackerBackupMergeKey));
+    const additions = importedItems.filter((item) => {
+      const key = getTrackerBackupMergeKey(item);
+      if (!key || existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    });
+    if (!additions.length) {
+      setTrackerBackupStatus("Nothing imported. All " + importedItems.length + " backup titles are already in your tracker.");
+      showWarning("All backup titles are already present.");
+      return;
+    }
+    tracker = ensureTrackerCloudIds([...tracker, ...additions]);
+    render();
+    setTrackerBackupStatus("Saving " + additions.length + " new titles safely...");
+    const cloudSaved = await queueTrackerSync();
+    const skipped = importedItems.length - additions.length;
+    const resultMessage = "Imported " + additions.length + " title" + (additions.length === 1 ? "" : "s") +
+      ". Existing " + skipped + " title" + (skipped === 1 ? "" : "s") + " were preserved.";
+    setTrackerBackupStatus(cloudSaved ? resultMessage + " Saved to your cloud tracker." : resultMessage + " Saved locally; cloud save will retry when available.");
+    cloudSaved ? showSuccess(resultMessage) : showWarning(resultMessage);
+  } catch (error) {
+    const message = error?.message || "Could not read this backup file.";
+    setTrackerBackupStatus(message);
+    showError(message);
+  } finally {
+    event.target.value = "";
+  }
+}
+
 function save() {
   if (!currentUser) {
     openLogin();
@@ -6939,6 +7029,9 @@ function bindEventListeners() {
   document
     .getElementById("profileUploadInput")
     .addEventListener("change", handleProfileUpload);
+  document
+    .getElementById("trackerBackupImportInput")
+    .addEventListener("change", handleTrackerBackupImport);
   document.getElementById("editStatusButtons").addEventListener("click", (event) => {
     const button = event.target.closest(".choice-btn");
 
@@ -7154,3 +7247,5 @@ window.syncLibraryDetails = syncLibraryDetails;
 window.toggleAiringNotifications = toggleAiringNotifications;
 window.confirmDelete = confirmDelete;
 window.triggerProfileUpload = triggerProfileUpload;
+window.exportTrackerBackup = exportTrackerBackup;
+window.triggerTrackerBackupImport = triggerTrackerBackupImport;
