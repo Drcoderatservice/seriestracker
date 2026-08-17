@@ -572,6 +572,15 @@
 
       <div class="settings-modal-actions">
         <button type="button" class="settings-action-btn" onclick="triggerProfileUpload()">Add Profile Pic</button>
+        <button type="button" class="settings-action-btn" onclick="exportTrackerBackup()">Export Backup</button>
+        <button type="button" class="settings-action-btn" onclick="triggerTrackerBackupImport()">Import Backup</button>
+        <input
+          type="file"
+          id="trackerBackupImportInput"
+          class="hidden"
+          accept=".json,application/json"
+        >
+        <p id="trackerBackupStatus" class="modal-subtext" aria-live="polite"></p>
         <button
           type="button"
           id="usernameToggleButton"
@@ -994,6 +1003,6 @@
     window.signOut = signOut;
     window.firebaseApp = app;
   </script>
-  <script src="app.js?v=20260817-safe-tracker-sync"></script>
+  <script src="app.js?v=20260817-local-backup"></script>
 </body>
 </html>
