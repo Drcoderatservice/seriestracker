@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Recover SeriesTracker List</title>
+  <style>
+    :root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090511;color:#fff;font:16px system-ui,sans-serif}main{width:min(580px,calc(100% - 32px));padding:28px;border:1px solid #5b4677;border-radius:18px;background:#151020;box-shadow:0 18px 50px #0008}h1{margin-top:0}p{line-height:1.55;color:#d9d0e6}.notice{padding:12px;border-radius:10px;background:#221a31}.row{display:grid;gap:10px;margin:18px 0}input,button{font:inherit;border-radius:10px;padding:12px}input{border:1px solid #6e5b85;background:#0d0915;color:#fff}button{border:0;background:#d7224b;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}.hidden{display:none}.small{font-size:.9rem;color:#bbaecb;white-space:pre-line}a{color:#ff8caf}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Recover shared tracker list</h1>
+    <p class="notice">This one-time tool imports titles from your saved shared list. It only adds missing titles; your current titles are not deleted or replaced.</p>
+    <p id="summary">Loading the saved list…</p>
+    <section id="loginPanel" class="hidden">
+      <p>Log in to the SeriesTracker account that should receive the titles.</p>
+      <form id="loginForm" class="row">
+        <input id="email" type="email" required autocomplete="email" placeholder="Email address">
+        <input id="password" type="password" required autocomplete="current-password" placeholder="Password">
+        <button>Log in</button>
+      </form>
+    </section>
+    <section id="importPanel" class="hidden">
+      <p id="account"></p>
+      <button id="importButton">Import missing titles</button>
+    </section>
+    <p id="status" class="small"></p>
+    <p><a href="./">Back to SeriesTracker</a></p>
+  </main>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-auth.js";
+    import { getFirestore, collection, doc, getDoc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/12.2.0/firebase-firestore.js";
+
+    const config = {
+      apiKey: "AIzaSyAm-13tnybtpD3KEwTSnx4JKGYpE0NV_xM",
+      authDomain: "trackerflix-9f3cb.firebaseapp.com",
+      projectId: "trackerflix-9f3cb",
+      storageBucket: "trackerflix-9f3cb.firebasestorage.app",
+      messagingSenderId: "191328175525",
+      appId: "1:191328175525:web:47f05118cb92e032a9544c"
+    };
+    const sharedListId = new URLSearchParams(window.location.search).get("id") || "Qqy4DU4Xh";
+    const auth = getAuth(initializeApp(config));
+    const db = getFirestore();
+    const searchBase = "https://little-mountain-71e9.sharmarishav2100.workers.dev";
+    const summary = document.querySelector("#summary");
+    const status = document.querySelector("#status");
+    const loginPanel = document.querySelector("#loginPanel");
+    const importPanel = document.querySelector("#importPanel");
+    const importButton = document.querySelector("#importButton");
+    let sharedItems = [];
+
+    const clean = value => String(value ?? "").trim();
+    const normalized = value => clean(value).toLowerCase();
+    const trackerKey = item => normalized(item.title || item.t) + "|" + normalized(item.category || item.c);
+    const titleKey = value => normalized(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "");
+    const imageUrl = path => {
+      const value = clean(path);
+      if (!value) return "";
+      return value.startsWith("http") ? value : value.startsWith("/") ? "https://image.tmdb.org/t/p/w500" + value : value;
+    };
+    const resultTitle = result => clean(result?.title ?? result?.name);
+    const resultType = result => {
+      if (result?.media_type === "movie" || result?.media_type === "tv") return result.media_type;
+      return result?.title && !result?.name ? "movie" : "tv";
+    };
+
+    function cloudIdFor(item, createdAt) {
+      const title = clean(item.title || item.t);
+      const category = clean(item.category || item.c) || "Anime";
+      const type = (item.mediaType || item.m) === "movie" ? "movie" : "tv";
+      const seed = [createdAt, category, type, title].join("|");
+      let hash = 0;
+      for (let index = 0; index < seed.length; index += 1) hash = (Math.imul(31, hash) + seed.charCodeAt(index)) | 0;
+      const slug = normalized(title).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "item";
+      return slug + "-" + Math.abs(hash).toString(36);
+    }
+
+    function makeTrackerItem(raw, createdAt) {
+      const title = clean(raw?.t ?? raw?.title);
+      const category = clean(raw?.c ?? raw?.category) || "Anime";
+      const mediaType = (raw?.m ?? raw?.mediaType) === "movie" ? "movie" : "tv";
+      const total = mediaType === "movie" ? 1 : Math.max(1, parseInt(raw?.e ?? raw?.total, 10) || 1);
+      const watched = Math.min(total, Math.max(0, parseInt(raw?.w ?? raw?.watched, 10) || 0));
+      const wantedStatus = clean(raw?.s ?? raw?.status);
+      const statusValue = ["Planned", "Watching", "Completed", "Paused", "Dropped"].includes(wantedStatus)
+        ? wantedStatus : watched === 0 ? "Planned" : watched < total ? "Watching" : "Completed";
+      const cloudId = cloudIdFor({ title, category, mediaType }, createdAt);
+      return { id:null, cloudId, title, image:"", isFavorite:false, watched, total, status:statusValue, category, mediaType,
+        seasonCount:mediaType === "movie" ? 0 : 1, seasons:[], deletedSeasonIds:[], overview:"", detailsHydratedAt:"",
+        createdAt, updatedAt:createdAt, lastProgressAt:watched > 0 ? createdAt : "" };
+    }
+
+    async function findExactMatch(item) {
+      const response = await fetch(searchBase + "?q=" + encodeURIComponent(item.title));
+      if (!response.ok) throw new Error("Search request failed");
+      const data = await response.json();
+      const wantedTitle = titleKey(item.title);
+      const wantedType = item.mediaType === "movie" ? "movie" : "tv";
+      const results = Array.isArray(data.results) ? data.results : [];
+      return results.find(result => resultType(result) === wantedType && titleKey(resultTitle(result)) === wantedTitle) || null;
+    }
+
+    async function fetchDetails(id, mediaType) {
+      const response = await fetch(searchBase + "?details=" + encodeURIComponent(id) + "&type=" + encodeURIComponent(mediaType));
+      if (!response.ok) throw new Error("Details request failed");
+      return response.json();
+    }
+
+    function seasonsFrom(details, fallbackImage) {
+      if (!Array.isArray(details?.seasons)) return [];
+      return details.seasons.map(season => {
+        const number = Math.max(0, parseInt(season?.season_number, 10) || 0);
+        return {
+          id:season?.id ?? String(number) + "-" + clean(season?.name),
+          name:clean(season?.name) || (number === 0 ? "Specials" : "Season " + (number || 1)),
+          seasonNumber:number,
+          episodeCount:Math.max(0, parseInt(season?.episode_count, 10) || 0),
+          airDate:clean(season?.air_date),
+          overview:clean(season?.overview),
+          image:imageUrl(season?.poster_path) || fallbackImage,
+          status:""
+        };
+      }).filter(season => season.episodeCount > 0 || season.seasonNumber > 0);
+    }
+
+    async function enrichImportedItem(item) {
+      const match = await findExactMatch(item);
+      if (!match) return { item, enriched:false };
+      const details = await fetchDetails(match.id, item.mediaType);
+      const image = imageUrl(details?.poster_path) || imageUrl(match.poster_path) || item.image;
+      const seasons = item.mediaType === "movie" ? [] : seasonsFrom(details, image);
+      const seasonEpisodes = seasons.reduce((total, season) => total + season.episodeCount, 0);
+      return {
+        enriched:true,
+        item:{
+          ...item,
+          id:match.id,
+          image,
+          overview:clean(details?.overview) || clean(match.overview),
+          seasonCount:item.mediaType === "movie" ? 0 : Math.max(seasons.length, parseInt(details?.number_of_seasons, 10) || 0, 1),
+          seasons,
+          total:item.mediaType === "movie" ? 1 : Math.max(item.total, parseInt(details?.number_of_episodes, 10) || 0, seasonEpisodes, 1),
+          detailsHydratedAt:new Date().toISOString()
+        }
+      };
+    }
+
+    async function loadSharedList() {
+      const snapshot = await getDoc(doc(db, "sharedLists", sharedListId));
+      const rawItems = snapshot.exists() ? snapshot.data()?.i : [];
+      sharedItems = (Array.isArray(rawItems) ? rawItems : []).filter(item => clean(item?.t ?? item?.title));
+      if (!sharedItems.length) throw new Error("Saved shared list was not found.");
+      summary.textContent = sharedItems.length + " titles are ready to recover.";
+    }
+
+    async function importMissingTitles() {
+      const user = auth.currentUser;
+      if (!user || !sharedItems.length) return;
+      importButton.disabled = true;
+      status.textContent = "Checking your current tracker…";
+      try {
+        const current = await getDocs(collection(db, "users", user.uid, "trackerItems"));
+        const existing = new Set();
+        const documentIds = new Set();
+        current.forEach(snapshot => { existing.add(trackerKey(snapshot.data() || {})); documentIds.add(snapshot.id); });
+        const now = new Date().toISOString();
+        const missing = [];
+        for (const rawItem of sharedItems) {
+          const item = makeTrackerItem(rawItem, now);
+          if (!existing.has(trackerKey(item))) { existing.add(trackerKey(item)); documentIds.add(item.cloudId); missing.push(item); }
+        }
+        if (!missing.length) { status.textContent = "All titles from the shared list are already in your tracker."; return; }
+        let enrichedCount = 0;
+        let basicCount = 0;
+        for (let index = 0; index < missing.length; index += 1) {
+          const item = missing[index];
+          status.textContent = "Finding poster and details " + (index + 1) + "/" + missing.length + ": " + item.title;
+          let prepared = { item, enriched:false };
+          try {
+            prepared = await enrichImportedItem(item);
+          } catch {
+            // A failed or uncertain lookup leaves the shared-list data untouched.
+          }
+          await setDoc(doc(db, "users", user.uid, "trackerItems", item.cloudId), {
+            ...prepared.item,
+            cloudOrder:current.size + index,
+            cloudUpdatedAt:new Date().toISOString()
+          });
+          prepared.enriched ? enrichedCount += 1 : basicCount += 1;
+        }
+        await setDoc(doc(db, "users", user.uid), { email:user.email || "", trackerStorageVersion:3, trackerCount:documentIds.size, updatedAt:new Date().toISOString() }, { merge:true });
+        status.textContent = "Done — " + missing.length + " titles were added. " + enrichedCount + " received poster/details; " + basicCount + " were safely kept without a confident match. Your existing " + current.size + " titles were preserved.";
+      } catch (error) {
+        status.textContent = "Import could not finish: " + (error.message || "please try again.");
+      } finally { importButton.disabled = false; }
+    }
+
+    document.querySelector("#loginForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      status.textContent = "Logging in…";
+      try {
+        await signInWithEmailAndPassword(auth, document.querySelector("#email").value.trim(), document.querySelector("#password").value);
+      } catch { status.textContent = "Login failed. Check email and password."; }
+    });
+    importButton.addEventListener("click", importMissingTitles);
+    onAuthStateChanged(auth, user => {
+      loginPanel.classList.toggle("hidden", Boolean(user));
+      importPanel.classList.toggle("hidden", !user);
+      if (user) document.querySelector("#account").textContent = "Import into " + (user.email || "your account") + ".";
+    });
+    loadSharedList().catch(error => { summary.textContent = "Could not read the shared list."; status.textContent = error.message; });
+  </script>
+</body>
+</html>
